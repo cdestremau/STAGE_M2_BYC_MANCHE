@@ -1,0 +1,384 @@
+---
+title: "Bycatch_English_Channel"
+author: "CMD"
+format: html
+editor: visual
+---
+
+# DECL & OBSMER data
+
+```{r dependencies}
+
+setwd("D:/Data")
+
+library(data.table)
+
+DECL_BYC=data.table()
+
+for (i in 2019:2023) {
+  setwd(paste0('D:/Data/',i));
+  DECL_BYC<-rbind(fread(paste0("CAPTURES-ACC-IFR_",i,".txt"), dec=",", encoding="Latin-1", colClasses=c("SECT_COD_SACROIS_NIV5"="character")), DECL_BYC, fill = T)
+}
+
+BYC_MANCHE=DECL_BYC[SECT_COD_SACROIS_NIV3 %in% c("27.7.e","27.7.d"),]
+BYC_MANCHE$ESP_LIB_FAO[BYC_MANCHE$ESP_LIB_FAO == "Dauphin commun"] <- "Delphinus delphis"
+BYC_MANCHE$ESP_LIB_FAO[BYC_MANCHE$ESP_LIB_FAO == "Marsouin commun"] <- "Phoceona phoceona"
+BYC_MANCHE$ESP_LIB_FAO[BYC_MANCHE$ESP_LIB_FAO == "Phoque gris"] <- "Halichoerus grypus"
+
+
+setwd("D:/Data")
+
+OBSMER_BYC<-read.csv("mm_byc.csv", header = T, sep = ",")
+
+
+
+
+```
+
+## Données déclaratives
+
+### Visualization of bycatch per species
+
+Over the span of 2019 - 2023
+
+```{r }
+
+ggplot(BYC_MANCHE, aes(x = ESP_LIB_FAO, y = NB_INDIVIDUS, fill = ESP_LIB_FAO)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Bycatch count per species", x = "SPECIES", y = "# OF INDIVIDUALS") +
+  theme_bw()+
+  scale_fill_manual(values=c("greensea", "green", "red", "pink"))
+
+```
+
+Bycatch per species per year
+
+```{r}
+
+ggplot(BYC_MANCHE, aes(x = ESP_LIB_FAO, y = NB_INDIVIDUS, fill = as.factor(AN))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Bycatch count per species", x = "SPECIES", y = "# OF INDIVIDUALS") +
+  theme_bw()+
+  scale_fill_manual(values=c("skyblue", "darkseagreen", "khaki", "red4", "rosybrown"))+
+  scale_y_continuous(breaks=seq(0,12,2))
+
+```
+
+## DECL & OBSMER combined
+
+### Visualization of number of events total between 2007 - 2023
+
+2 plots :
+
+-   Total number of bycatch events/species
+
+-   Total number of bycatch events/year/species
+
+```{r}
+
+library(ggplot2)
+library(dplyr)
+
+# Total number of bycatch events per species 
+
+sp_total <- table(OBSMER_BYC$ESPECE)
+sp_total <- as.data.frame.table(sp_total)
+sp_total <- sp_total[sp_total$Freq != 0, ]
+
+#Grab additional data from données déclaratives 
+
+delphis_byc <- BYC_MANCHE[BYC_MANCHE$ESP_COD_FAO %in% c("DCO", "DLP"), ]
+delphis_byc$ESP_LIB_FAO[delphis_byc$ESP_LIB_FAO == "Dauphin commun"] <- "Delphinus delphis"
+
+
+#Tedious code that I'm sure can be simplified in order to sum up the number of bycatch events for both idientifed and non-identified dolphins
+
+delphis_total <- as.data.frame.table(table(delphis_byc$ESP_COD_FAO))
+delphis_total <- delphis_total[delphis_total$Freq != 0, ]
+delphis_total <- sum(delphis_total$Freq, na.rm = TRUE)
+delphis_total <- as.data.frame(delphis_byc)
+
+
+#Let's integrate those numbers with our OBSMER data 
+
+index_delphis <- which(sp_total$Var1 == 'Delphinus delphis')
+
+# Ensure that delphis_total is a data frame or table
+delphis_total <- as.data.frame.table(table(delphis_byc$ESP_COD_FAO))
+
+# Update 'Freq' for 'Delphinus delphis' in sp_total
+sp_total$Freq[index_delphis] <- sp_total$Freq[index_delphis] +
+  sum(delphis_total$Freq[delphis_total$Var1 %in% c('DCO', 'DLP')])
+
+#Now sp_total has the total of number of bycatch events per species between both the DELC and OBSMER datasets
+
+#Plot
+
+ggplot(sp_total, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", color = "black") +
+  labs(title = "Total Bycatch Events per Species", x = "Taxa", y = "# of bycatch events") +
+  scale_y_continuous(breaks=seq(0,45,5)) +
+  theme_minimal()
+
+
+###################################################################################################
+
+
+# Total number of bycatch events/Sp/Zone
+
+OBSMER_zone <- table(OBSMER_BYC$ESPECE, OBSMER_BYC$ZONE)
+OBSMER_zone <- as.data.frame.table(OBSMER_zone)
+OBSMER_zone <- OBSMER_zone[OBSMER_zone$Freq != 0, ]
+
+
+
+DECL_d_zone <- BYC_MANCHE[BYC_MANCHE$ESP_COD_FAO %in% c("DCO", "DLP"), ]
+DECL_d_zone$ESP_LIB_FAO[DECL_d_zone$ESP_LIB_FAO == "Dauphin commun"] <- "Delphinus delphis"
+DECL_d_zone <- DECL_d_zone[,c("ESP_LIB_FAO","SECT_COD_SACROIS_NIV3","SECT_COD_SACROIS_NIV5","MAREE_DATE_RET", "MAREE_ID")]
+
+
+DECL_d_zone <- table(DECL_d_zone$ESP_LIB_FAO, DECL_d_zone$SECT_COD_SACROIS_NIV3)
+DECL_d_zone <- as.data.frame.table(DECL_d_zone)
+DECL_d_zone <- DECL_d_zone[DECL_d_zone$Freq != 0, ]
+
+
+
+
+
+###Integrating the Delphinus delphis data from DECL to the OBSMER_zone data
+
+index_delphis <- which(OBSMER_zone$Var1 == 'Delphinus delphis')
+
+# Ensure that delphis_total is a data frame or table
+
+delphis_total <- as.data.frame.table(table(delphis_byc$ESP_COD_FAO))
+
+# Update 'Freq' for 'Delphinus delphis' in sp_total
+
+OBSMER_zone$Freq[index_delphis] <- OBSMER_zone$Freq[index_delphis] +
+  sum(DECL_d_zone$Freq[DECL_d_zone$Var1 %in% "Delphinus delphis"])
+
+
+
+
+#Merge
+
+OBSMER_zone <- rbind(OBSMER_zone, DECL_d_zone[DECL_d_zone$Var1 == "Dauphins nca",])
+
+ggplot(OBSMER_zone, aes(x = Var1, y = Freq, fill = Var2)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  labs(title = "Species Bycatch per Zone", x = "Taxa", y = "# of bycatch events") +
+  scale_fill_manual(values = c("27.7.e" = "grey20", "27.7.d" = "gray85"),
+                    name = "Zone") +
+  scale_y_continuous(breaks=seq(0,45,5)) +
+  theme_minimal()
+
+
+###################################################################################################
+
+#Megafauna plot only
+
+megafauna <- sp_total %>%
+  filter(Var1 %in% c("Phocoena phocoena", "Delphinus delphis", "Halichoerus grypus", "Phoca vitulina"))
+
+ggplot(megafauna, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  labs(title = "Megafauna bycatch", x = "Taxa", y = "# of bycatch events") +
+  scale_fill_manual(values = c("27.7.e" = "grey20", "27.7.d" = "gray85"),
+                    name = "Zone") +
+  scale_y_continuous(breaks=seq(0,45,5)) +
+  theme_minimal()
+
+
+#Bird only
+
+bird_byc <- sp_total %>%
+  filter(Var1 %in% c("Alca torda", "Uria aalge", "Phalacrocorax aristotelis", "Phalacrocorax carbo",
+                      "Morus bassanus", "Larus marinus", "Larus argentatus", "Gavia immer", "Gavia stellata"))
+
+ggplot(bird_byc, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  labs(title = "Bird bycatch", x = "Taxa", y = "# of bycatch events") +
+  scale_fill_manual(values = c("27.7.e" = "grey20", "27.7.d" = "gray85"),
+                    name = "Zone") +
+  scale_y_continuous(breaks=seq(0,45,5)) +
+  theme_minimal()
+
+
+```
+
+### Yearly variation of bycatch - OBSMER ONLY
+
+```{r}
+
+#Species bycatch yearly variation
+
+#The DATE_OP data from the OBSMER_BYC is very thorough, so we need to simplify it first. 
+
+years <- 2007:2023
+OBSMER_BYC$Year <- NA
+
+# Create loop through each year and update the 'Year' column of the sp_byc dataset
+for (year in years) {
+  OBSMER_BYC$Year[grepl(as.character(year), OBSMER_BYC$DATE_FIN, fixed = TRUE)] <- as.character(year)
+}
+
+#Visualize the data to ensure its functionality
+print(OBSMER_BYC)
+
+#Great now let's plot this
+#One caveat is discerning each species per color can be tricky since we have 14 different species
+
+ggplot(OBSMER_BYC, aes(x = Year, fill = ESPECE)) +
+  geom_bar(position = "stack", color = "black") +
+  labs(title = "# of bycatch per species per year" , y = "Count") +
+  theme_minimal()# Use rainbow palette  theme_minimal()# Use rainbow palette  theme_minimal()
+
+#2023 has the most data
+#2014 has no data
+
+```
+
+2023 has the most data, 2014 has no data.
+
+# Maps
+
+## Megafauna bycatch distribution
+
+```{r}
+
+library(sf) #Need this package to convert data frames into spacial data frames
+library(rnaturalearth) #for downloading shapefiles
+
+
+
+#First we create a data frame with three columns  
+
+localisation <- data.frame(lon = OBSMER_BYC$LONG_DEB_OP, lat = OBSMER_BYC$LAT_DEB_OP, Species = OBSMER_BYC$ESPECE)
+
+#The resulting data frame contains both megafauna and bird data
+#We want to keep the megafauna data so it's easier to visualize on the map 
+
+megafauna <- c("Delphinus delphis", "Phocoena phocoena", "Halichoerus grypus", "Phoca vitulina", "Globicephala melas")
+
+localisation <- localisation[localisation$Species %in% megafauna, ]
+
+#Transform the data frame into a spatial data frame, where coords = () grabs where the long and lat columns are, and the crs = "" specifies what kind of coordinate systems it is (WGS84)
+points <- st_as_sf(localisation, coords = c(1, 2), 
+                   crs = '+proj=longlat +datum=WGS84 +ellps=WGS84')
+
+#Now we can create a map and plot the data points
+
+#Map creation
+map <- ne_countries(scale = 10, returnclass = "sf")
+
+#Grabbing ocean data otherwise the map coloring won't distinct between land and ocean 
+ocean <- ne_download(scale = 10, type = 'ocean', 
+                     category = 'physical', returnclass = 'sf')
+
+#Map creation where we add the previous map and ocean files, here I put the ocean in white to better visualize the data points
+#xlim and ylim defines the focus area of the map
+#And then I add the data points data = points, with other necessary info 
+
+ggplot() +
+  geom_sf(data = map) +
+  geom_sf(data = ocean, color = "black", size = 0.05, fill = "white") +
+  ggtitle("Megafauna bycatch in the English Channel") +
+  xlim(-7, 2) +
+  ylim(48, 51)+
+  geom_sf(data = points,aes(geometry = geometry,
+                                  shape = Species,
+                                  color = Species), size = 2)
+
+```
+
+-   Megafauna data is primarily concentrated in the west (27.7.e), with few outliers in the east (27.7.d). Outliers include 2 harbor porpoises (Phocoena phocoena) and 2 harbor seal (Halichoerus grypus).
+
+## Bird distribution
+
+```{r}
+
+library(sf) #Need this package to convert data frames into spacial data frames
+library(rnaturalearth) #for downloading shapefiles
+
+
+#Same code as with the megafauna, this time with the bird data
+
+b_points <- data.frame(lon = OBSMER_BYC$LONG_DEB_OP, lat = OBSMER_BYC$LAT_DEB_OP, taxa = OBSMER_BYC$ESPECE)
+selected_birds <- c("Alca torda", "Uria aalge", "Phalacrocorax aristotelis", "Phalacrocorax carbo",
+                      "Morus bassanus", "Larus marinus", "Larus argentatus", "Gavia immer", "Gavia stellata")
+b_points <- b_points[b_points$taxa %in% selected_birds, ]
+b_points <- st_as_sf(b_points, coords = c(1, 2), 
+                   crs = '+proj=longlat +datum=WGS84 +ellps=WGS84')
+
+
+map <- ne_countries(scale = 10, returnclass = "sf")
+ocean <- ne_download(scale = 10, type = 'ocean', 
+                     category = 'physical', returnclass = 'sf')
+
+
+#I have to define myself the shape of the points, ggplot will only do the first 6 and I have 9
+shape_values <- c(16, 17, 18, 19, 20, 21, 22, 23, 24)
+
+
+
+#English channel map 
+
+ggplot() +
+  geom_sf(data = map) +
+  geom_sf(data = ocean, color = "black", size = 0.05, fill = "white") +
+  ggtitle("English Channel") +
+  xlim(-7, 1) +
+  ylim(48, 50.5)+
+  geom_sf(data = b_points,aes(geometry = geometry,
+                            shape = taxa,
+                            color = taxa), size = 2)+
+  scale_shape_manual(values = shape_values)
+
+#Most points are clustered into a singular area, with few outliers found in the english channel
+#Finistère close up
+
+ggplot() +
+  geom_sf(data = map) +
+  geom_sf(data = ocean, color = "black", size = 0.05, fill = "white") +
+  ggtitle("English Channel") +
+  xlim(-5, -3.5) +
+  ylim(47.8, 48.8)+
+  geom_sf(data = b_points,aes(geometry = geometry,
+                              shape = taxa,
+                              color = taxa), size = 2)+
+  scale_shape_manual(values = shape_values)
+
+
+
+```
+
+The bird data is primarily concentrated in the south-west part of the 27.7.e section, clustered in the Finistère region. 2 outliers in the west (27.7.d) : Morus basanus, Larus argentatus 1 in Cote d'Armor : Phalacrocorax aristotelis Remainder in Finistère : - 1 North : Uria aalge \_ Most in celtic sea area : primarily U. aalge, L. argentatus, P. aristotelis
+
+## Visualization of gear type, métiers, for Delphinus delphis bycatch
+
+```{r}
+
+d_OBS <- OBSMER_BYC[OBSMER_BYC$ESPECE == "Delphinus delphis",]
+
+metiers <- c("ENGIN", "METIER1", "ESPECE_CIBLE")
+
+# Use dplyr to select desired columns 
+d_OBS <- d_OBS %>%
+  select(all_of(metiers))
+
+#Get the total count for each gear type
+
+d_OBS <- as.data.frame.table(table(d_OBS$ENGIN))
+d_OBS <- d_OBS[d_OBS$Freq != 0, ]
+d_OBS <- as.data.frame(d_OBS)
+  
+ggplot(d_OBS, aes(x = Var1 , y = Freq)) +
+  geom_bar(stat = "identity", position = "stack", color = "black") +
+  labs(title = "Dolphin bycatch events per gear type  ", x = "Engin", y = "# of bycatch events") +
+  theme_minimal()
+
+
+```
+
+Chalut boeufs pélagiques gear has the most recorded data for dolphin bycatch.

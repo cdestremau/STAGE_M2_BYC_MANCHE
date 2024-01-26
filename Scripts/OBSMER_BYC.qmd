@@ -1,0 +1,174 @@
+---
+title: "OBSMER_BYC"
+author: "CMD"
+format: html
+editor: visual
+---
+
+## Data retrieval & structuration
+
+From the raw data
+
+```{r}
+
+setwd("D:/Data/FREE2_OBSMER_serie")
+
+library(data.table)
+
+
+#Open CAPTURES data
+OBSMER_BYC_2021<-read.csv2("CAPTURES.csv", fileEncoding="ISO-8859-3")
+setDT(OBSMER_BYC_2021)
+
+#File is quite dense, so let's remove unecessary columns
+OBSMER_BYC_2021 <- subset(OBSMER_BYC_2021, select = -c(ID_DETAIL, CAT, ESPECE_COM, TAUX_ECH, POIDS_REF, WEIGHT_RTP, PRODUCT_DESTINATION, CONVERSION_COEFFICIENT, ALL_TAUX_ECH))
+
+
+#Add strategy data
+strat<-read.csv2("STRATEGIE.csv", fileEncoding="ISO-8859-3")
+setDT(strat)
+
+#Combine the two datasets and sort them via the ID_VRAC variable
+OBSMER_BYC_2021=merge(OBSMER_BYC_2021, strat[,.(ID_VRAC,ID_OP)], by="ID_VRAC", all.x = T, all.y=F)
+
+#Add operation data
+operation<-read.csv2("OPERATION_PECHE.csv", fileEncoding="ISO-8859-3")
+
+#Dense file, we keep the columns that interests us
+operation <- subset(operation, select = c(ID_OP, DATE_FIN, DUREE_OP, RECTANGLE, PROF_FOND, PROF_ENGIN, ID_MAREE,ENGIN, METIER1, LONG_DEB_OP,LAT_DEB_OP, ESPECE_CIBLE, MAILL, EFFORT, ID_OP,ZONE))
+setDT(operation)
+
+#Merge again 
+OBSMER_BYC_2021=merge(OBSMER_BYC_2021, operation[,.(DATE_FIN, DUREE_OP, RECTANGLE, PROF_FOND, PROF_ENGIN, ID_MAREE,ENGIN, METIER1, LONG_DEB_OP,LAT_DEB_OP, ESPECE_CIBLE, MAILL, EFFORT, ID_OP,ZONE)], by="ID_OP", all.x = T, all.y=F)
+
+
+#select data in the region of interest, here english channel
+OBSMER_BYC_2021=OBSMER_BYC_2021[ZONE %in% c("27.7.e","27.7.d"),]
+
+
+```
+
+Selection of bird species
+
+```{r}
+bird_byc <- rbind(
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Alca torda", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Uria aalge", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Alcidae", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Phalacrocorax aristotelis", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Phalacrocorax carbo", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Morus bassanus", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Gavia stellata", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Gavia immer", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Phalacrocorax aristotelis", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Larus marinus", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Larus argentatus", ]
+)
+
+
+```
+
+Selection of marine mammal species & combination with bird data
+
+```{r}
+
+sp_byc <- rbind(
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Halichoerus grypus", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Delphinus delphis", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Phocoena phocoena", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Phoca vitulina", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Globicephala melas", ],
+  bird_byc
+)
+
+
+```
+
+Marine mammal only 
+
+```{r}
+
+mm_byc <- rbind(
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Halichoerus grypus", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Delphinus delphis", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Phocoena phocoena", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Phoca vitulina", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Globicephala melas", ]
+)
+
+
+```
+
+
+sp_byc was saved as a .csv file to ease data retrieval.
+
+## Plots
+
+```{r}
+library(ggplot2)
+
+# Total number of bycatch events per species 
+
+sp_total <- table(sp_byc$ESPECE)
+sp_total <- as.data.frame.table(sp_total)
+sp_total <- sp_total[sp_total$Freq != 0, ]
+
+ggplot(sp_total, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", color = "black") +
+  labs(title = "Total Bycatch Events per Species", x = "Species", y = "# of bycatch event") +
+  scale_y_continuous(breaks=seq(0,32,5)) +
+  theme_minimal()
+
+
+# Total number of bycatch events/Sp/Zone
+
+sp_byc_zone <- table(sp_byc$ESPECE, sp_byc$ZONE)
+sp_byc_zone <- as.data.frame.table(sp_byc_zone)
+sp_byc_zone <- sp_byc_zone[sp_byc_zone$Freq != 0, ]
+
+
+ggplot(sp_byc_zone, aes(x = Var1, y = Freq, fill = Var2)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  labs(title = "Species Bycatch per Zone", x = "Species", y = "# of bycatch event") +
+  scale_fill_manual(values = c("27.7.e" = "grey20", "27.7.d" = "gray85"),
+                    name = "Zone") +
+  scale_y_continuous(breaks=seq(0,32,5)) +
+  theme_minimal()
+
+
+
+```
+
+Yearly variation (2007 - 2023)
+
+```{r}
+
+#Species bycatch yearly variation
+
+#The DATE_OP data is very thorough, so we need to simplify it first. 
+
+years <- 2007:2023
+sp_byc$Year <- NA
+
+# Create loop through each year and update the 'Year' column of the sp_byc dataset
+for (year in years) {
+  sp_byc$Year[grepl(as.character(year), sp_byc$DATE_FIN, fixed = TRUE)] <- as.character(year)
+}
+
+#Visualize the data to ensure its functionality
+print(sp_byc)
+
+#Great now let's plot this
+#One caveat is discerning each species per color can be tricky since we have 14 different species
+
+ggplot(sp_byc, aes(x = Year, fill = ESPECE)) +
+  geom_bar(position = "stack", color = "black") +
+  labs(title = "Species Count per Year", x = "Year", y = "Count") +
+  theme_minimal()# Use rainbow palette  theme_minimal()# Use rainbow palette  theme_minimal()
+
+#2023 has the most data
+#2014 has no data
+
+```
+
+2023 monthly variation
