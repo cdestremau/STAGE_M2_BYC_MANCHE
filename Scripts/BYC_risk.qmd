@@ -866,11 +866,11 @@ SCANS_III_summer$new_area <- st_area(SCANS_III_summer)
 # to the fact the code wasn't working 
 # This gives us hours fished/m2
 
-SAMM_I_summer$adjusted_effort <- SAMM_I_summer$total_hrs_fish / SAMM_I_summer$area
-SAMM_I_summer$log_effort <- log(SAMM_I_summer$adjusted_effort)
-SAMM_I_summer$normalized_effort <- scale(SAMM_I_summer$adjusted_effort, center = T, scale = T)
 
 # Now i'm adjusting effort according to area (Pelagis grid) hrs/km2
+SAMM_I_summer$adjusted_effort <- SAMM_I_summer$total_hrs_fish / SAMM_I_summer$area
+SAMM_I_summer$log_effort <- log(SAMM_I_summer$adjusted_effort)
+
 
 SAMM_I_winter$adjusted_effort <- SAMM_I_winter$total_hrs_fish / SAMM_I_winter$area
 SAMM_I_winter$log_effort <- log(SAMM_I_winter$adjusted_effort)
@@ -882,14 +882,34 @@ SCANS_III_summer$adjusted_effort <- SCANS_III_summer$total_hrs_fish / SCANS_III_
 SCANS_III_summer$log_effort <- log(SCANS_III_summer$adjusted_effort)
 
 
+
+
 # However, OFB puts fish hours and dolphin density in log? and then does the risk index?
 # "L’indice de risque d’exposition est calculé suivant la formule suivante : DENSITE (ind/km2) x EFFORT DE PECHE (heures/mailles). Les deux paramètres (densités et efforts de pêches) sont log-normalisés vis-à-vis de la valeur maximale"
+# The thing is if I do that, assuming the norm_minmax function is what OFB is talking about, the risk map looks really lame 
+
+  ## Doing it for one season, found risk effort and mapped it (further down below)
+
+norm_minmax <- function(x){
+  (x- min(x)) /(max(x)-min(x))
+}
+
+SAMM_I_summer <- SAMM_I_summer[complete.cases(SAMM_I_summer$adjusted_effort), ]
+SAMM_I_summer <- SAMM_I_summer[complete.cases(SAMM_I_summer$density), ]
+
+SAMM_I_summer$normalized_effort <- norm_minmax(SAMM_I_summer$adjusted_effort)
+SAMM_I_summer$normalized_density <- norm_minmax(SAMM_I_summer$density)
 
 
-# Plotted only for SAMM_I_summer at first
+
+
+
+# Risk index
+
 
 SAMM_I_summer$risk_index <- SAMM_I_summer$adjusted_effort * SAMM_I_summer$density
 SAMM_I_summer$log_risk_index <- log(SAMM_I_summer$adjusted_effort * SAMM_I_summer$density)
+SAMM_I_summer$norm_risk <- SAMM_I_summer$normalized_effort * SAMM_I_summer$normalized_density
 
 
 SAMM_I_winter$risk_index <- SAMM_I_winter$adjusted_effort * SAMM_I_winter$density
@@ -912,9 +932,10 @@ rangey<-st_bbox(SAMM_I_summer)[c(2,4)]
 # Remove # in front of facet_wrap to see risk per DCR_flottille (Fileyeurs, chalutiers de fond, chalutiers pélagiques)
 # There is an issue however when looking at specific flottille, can't figure out why the borders don't show up
 
+    # SAMM_I_summer map (a) is currently coded for normalized risk, not log risk
 a <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_I_summer, aes(fill = log_risk_index )) +
+  geom_sf(data = SAMM_I_summer, aes(fill = norm_risk )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -956,13 +977,8 @@ d <- ggplot() +
   facet_wrap(~DCR_FLOTTILLE_LIB)
 ggtitle("SCANS_III_summer log_risk_index")
 d
+
 #ggarrange(a,b,c,d, labels = "Delphinus delphis log(risk_index)/season")
-
-
-
-# The map is obviously wrong
-# Put the risk_index in log initially and had similar results
-# Is it the classint/log() that is wrong? Is it area calc?
 
 
 #### mapping stuff 
@@ -1472,7 +1488,8 @@ ggarrange(d1,d2,d3, labels = "Marsouins SCANS_III_summer")
 
 # "Procellaridae"   
 
-# "SULBAS"  "RISTRI" "Mouette"         
+# "SULBAS"  
+# "RISTRI" Rissa tridactyla (mouette tridactyle)"Mouette"         
  
 dd_dist <- meg_polygons %>%
   filter(taxon %in% "LARSPP")
@@ -1480,13 +1497,14 @@ dd_dist <- na.omit(dd_dist)
 
 
 ## Creating class intervals
-classes <- classIntervals(dd_dist$abund, n = 5, style = "quantile")
-dd_dist <- dd_dist %>%
-  mutate(percent_class = cut(abund, classes$brks, include.lowest = T))
-dd_dist <- dd_dist %>% select (taxon,abund, percent_class,session_global, geom)%>%st_as_sf()
+#classes <- classIntervals(dd_dist$abund, n = 5, style = "quantile")
+#dd_dist <- dd_dist %>%
+#  mutate(percent_class = cut(abund, classes$brks, include.lowest = T))
+#dd_dist <- dd_dist %>% select (taxon,abund, percent_class,session_global, geom)%>%st_as_sf()
 
+dd_dist$norm_abund <- norm_minmax(dd_dist$density)
 
-#dd_dist$abund_normalized <- scale(dd_dist$abund, center = min(dd_dist$abund), scale = max(dd_dist$abund) - min(dd_dist$abund))
+dd_dist$abund_normalized <- scale(dd_dist$abund, center = min(dd_dist$abund), scale = max(dd_dist$abund) - min(dd_dist$abund))
 
 ## Log abundance
 
@@ -1509,11 +1527,26 @@ dd_abund <- ggplot() +
   facet_wrap(~ session_global)
 dd_abund
 
-## Laridés log abundance 
+## Laridés norm_abund  
 
-dd_log_abund <- ggplot() + 
+norm_abund <- ggplot() + 
   theme_bw()+
-  geom_sf(data = dd_dist, aes(fill = log_abund))+
+  geom_sf(data = dd_dist, aes(fill = abund_normalized))+
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  #scale_fill_manual(values = brewer.pal(n = length(unique(meg$percent_class)), name = 'Spectral'),
+                    #name = "#") +  
+  coord_sf(rangex, rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Laridés norm_abund")+
+  facet_wrap(~ session_global)
+norm_abund
+
+## Laridés norm_abund  
+
+log_abund <- ggplot() + 
+  theme_bw()+
+  geom_sf(data = dd_dist, aes(fill = log_density))+
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   #scale_fill_manual(values = brewer.pal(n = length(unique(meg$percent_class)), name = 'Spectral'),
@@ -1522,7 +1555,7 @@ dd_log_abund <- ggplot() +
   xlab("Longitude") + ylab("Latitude") +
   ggtitle("Laridés log_abund")+
   facet_wrap(~ session_global)
-dd_log_abund
+log_abund
 
 ```
 
