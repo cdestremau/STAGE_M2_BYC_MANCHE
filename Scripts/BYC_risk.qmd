@@ -5,7 +5,9 @@ format: html
 editor: visual
 ---
 
-## simplesacrois
+# simplesacrois
+
+## Data set-up
 
 ```{r data}
 library(dplyr)
@@ -34,7 +36,7 @@ select_manche <- subset(select_manche,!is.na(TP_NAVIRE_SACROIS))
 
 ```
 
-## Seasons + NAVS_COD_YEAR
+### Seasons + NAVS_COD_YEAR
 
 ```{r adding seasons}
 
@@ -73,7 +75,7 @@ select_manche <- select(select_manche, -MAREE_DATE_DEP)
 
 ```
 
-## FPC
+### FPC
 
 ```{r }
 
@@ -107,13 +109,13 @@ FPC=FPC[NAVS_COD_YEAR %in% unique(select_manche[,NAVS_COD_YEAR]),]
 
 ####
 
-#select_manche <- select_manche %>%
-#  left_join(FPC, by = c("NAVS_COD_YEAR" = "NAVS_COD_YEAR")) %>%
-#  filter (DCR_FLOTTILLE_LIB %in% c("Chalutiers de fond", "Chalutiers pélagiques", "Fileyeurs"))
+select_manche <- select_manche %>%
+  left_join(FPC, by = c("NAVS_COD_YEAR" = "NAVS_COD_YEAR")) %>%
+  filter (DCR_FLOTTILLE_LIB %in% c("Chalutiers de fond", "Chalutiers pélagiques", "Fileyeurs"))
 
 ```
 
-## Rectangle geometry
+### Rectangle geometry
 
 ```{r}
 
@@ -131,7 +133,7 @@ select_manche <- select_manche %>%
 
 ```
 
-## ICES
+### ICES
 
 ```{r ICES}
 
@@ -240,7 +242,7 @@ select_manche <- select_manche %>%
 
 ```
 
-## Campagnes names
+### Campagnes names
 
 ```{r campagnes names}
 
@@ -296,24 +298,7 @@ manche_campagnes <- bind_rows(
 
 ```
 
-## FISH_EFFORT
-
-```{r FISH_EFFORT}
-
-## Testing things here 
-
-#gear_effort <- manche_campagnes %>% 
-#   distinct(NAVS_COD_YEAR, .keep_all = TRUE) %>%
-#  group_by(DCR_S_FLOTTILLE_LIB, SECT_COD_SACROIS_NIV5, NAVS_COD_YEAR) %>%
-#  summarize(total_fish_hrs = sum(TP_NAVIRE_SACROIS, na.rm = TRUE))
-
-#manche_campagnes <- manche_campagnes %>%
-#  left_join(gear_effort %>% select(NAVS_COD_YEAR, total_fish_hrs, DCR_S_FLOTTILLE_LIB, SECT_COD_SACROIS_NIV5), 
-#            by = c("NAVS_COD_YEAR", "DCR_S_FLOTTILLE_LIB", "SECT_COD_SACROIS_NIV5"))
-
-```
-
-## EFFORT / FLOTTILLE
+# Fishing effort / flottille
 
 ```{r EFFORT / FLOTTILLE}
 
@@ -528,11 +513,11 @@ print(vessel_count)
 
 # Very few chalutiers pélagiques vessels (29,32,4,6 for each campagnes respectively) 
 # Need to look at the overall data if the proportions are as drastic and if they aren't simply fishing at 
-# Different times of the year. Important since they account for ~20% of BYC data 
+# Different times of the year. 
 
 ```
 
-#BYC
+# Bycatch data
 
 ```{r }
  
@@ -636,7 +621,7 @@ sp_byc$Season <- cut(sp_byc$Month,
 
 ```
 
-# MAP BYC RISK
+# Fishing effort, density, bycatch risk
 
 ## Megafauna
 
@@ -671,8 +656,8 @@ megafauna <- megafauna %>%
 
 setwd("D:/Data")
 ICES_data <- st_read("ICES_Areas_20160601_cut_dense_3857.shp")
-ICES_data <- ICES_data %>% filter(Area_Full %in% c("27.7.d", "27.7.e", "27.7.h"))
-
+ICES_data <- ICES_data %>% filter(Area_Full %in% c("27.7.d", "27.7.e", "27.7.h")) %>%
+  select(Area_Full, geometry)
 # Load megafauna data 
 # Make sure coordinate system is the same as ICES_data
 megafauna <- st_transform(megafauna, crs = st_crs(ICES_data))
@@ -705,7 +690,129 @@ meg_polygons$log_density <- log(meg_polygons$density)
 
 
 ```
-### Delphinus delphis BYC risk
+### Distribution
+
+#### Delphinus delphis distribution
+
+```{r DELDEL}
+
+########## DAUPHINS 
+dd_dist <- meg_polygons %>%
+  filter(taxon %in% "DELDEL")
+dd_dist <- na.omit(dd_dist)
+
+#classes <- classIntervals(dd_dist$abund, n = 6, style = "quantile")
+#dd_dist <- dd_dist %>%
+#  mutate(percent_class = cut(abund, classes$brks, include.lowest = T))
+#dd_dist <- dd_dist %>% select (taxon,abund, percent_class,season, geom)%>%st_as_sf()
+
+
+#dd_dist$abund_normalized <- scale(dd_dist$abund, center = min(dd_dist$abund), scale = max(dd_dist$abund) - min(dd_dist$abund))
+
+dd_dist$log_abund <- log(dd_dist$abund)
+
+#get the limx and limy for coord_sf
+rangex<-st_bbox(dd_dist)[c(1,3)]
+rangey<-st_bbox(dd_dist)[c(2,4)]
+
+dd_abund <- ggplot() + 
+  theme_bw()+
+  geom_sf(data = dd_dist, aes(fill = abund))+
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  #scale_fill_manual(values = brewer.pal(n = length(unique(meg$percent_class)), name = 'Spectral'),
+                    #name = "#") +  
+  coord_sf(rangex, rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Delphinus delphis abundance")+
+  facet_wrap(~ session_global)
+dd_abund
+
+dd_abund_log <- ggplot() + 
+  theme_bw()+
+  geom_sf(data = dd_dist, aes(fill = log_abund))+
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  #scale_fill_manual(values = brewer.pal(n = length(unique(meg$percent_class)), name = 'Spectral'),
+                    #name = "#") +  
+  coord_sf(rangex, rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Delphinus delphis abund_log")+
+  facet_wrap(~ session_global)
+dd_abund_log
+
+```
+
+#### Phocoena phocoena distribution
+
+```{r marsouin distribution}
+
+########## MARSOUINS 
+
+pp_dist <- meg_polygons %>%
+  filter(taxon %in% "PHOPHO")
+pp_dist <- na.omit(pp_dist)
+
+#classes <- classIntervals(dd_dist$abund, n = 6, style = "quantile")
+#dd_dist <- dd_dist %>%
+#  mutate(percent_class = cut(abund, classes$brks, include.lowest = T))
+#dd_dist <- dd_dist %>% select (taxon,abund, percent_class,season, geom)%>%st_as_sf()
+
+
+pp_dist$log_abund <- log(pp_dist$abund)
+
+
+#get the limx and limy for coord_sf
+rangex<-st_bbox(pp_dist)[c(1,3)]
+rangey<-st_bbox(pp_dist)[c(2,4)]
+
+ pp_abund <-ggplot() + 
+  theme_bw()+
+  geom_sf(data = pp_dist, aes(fill = abund))+
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  #scale_fill_manual(values = brewer.pal(n = length(unique(meg$percent_class)), name = 'Spectral'),
+                    #name = "#") +  
+  coord_sf(rangex, rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Phocoena phocoena abundance")+
+  facet_wrap(~ session_global)
+pp_abund
+
+pp_abund_log <- ggplot() + 
+  theme_bw()+
+  geom_sf(data = pp_dist, aes(fill = log_abund))+
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  #scale_fill_manual(values = brewer.pal(n = length(unique(meg$percent_class)), name = 'Spectral'),
+                    #name = "#") +  
+  coord_sf(rangex, rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Phocoena phocoena abund_log")+
+  facet_wrap(~ session_global)
+pp_abund_log
+
+
+ pp_density <-ggplot() + 
+  theme_bw()+
+  geom_sf(data = pp_dist, aes(fill = density))+
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  #scale_fill_manual(values = brewer.pal(n = length(unique(meg$percent_class)), name = 'Spectral'),
+                    #name = "#") +  
+  coord_sf(rangex, rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Phocoena phocoena density")+
+  facet_wrap(~ session_global)
+pp_density
+
+
+```
+
+
+### Bycatch risk maps
+
+#### Delphinus delphis
 
 ```{r}
 
@@ -814,7 +921,7 @@ a <- ggplot() +
   xlab("Longitude") + ylab("Latitude") +
   facet_wrap(~DCR_FLOTTILLE_LIB)
 ggtitle("SAMM_I_summer log_risk_index")
-
+a
 
 
 b <- ggplot() + 
@@ -826,7 +933,7 @@ b <- ggplot() +
   xlab("Longitude") + ylab("Latitude") +
   facet_wrap(~DCR_FLOTTILLE_LIB)
 ggtitle("SAMM_I_winter log_risk_index")
-
+b
 
 c <- ggplot() + 
   theme_bw() +
@@ -837,7 +944,7 @@ c <- ggplot() +
   xlab("Longitude") + ylab("Latitude") +
   facet_wrap(~DCR_FLOTTILLE_LIB)
 ggtitle("SAMM_II_winter log_risk_index")
-
+c
 
 d <- ggplot() + 
   theme_bw() +
@@ -848,8 +955,8 @@ d <- ggplot() +
   xlab("Longitude") + ylab("Latitude") +
   facet_wrap(~DCR_FLOTTILLE_LIB)
 ggtitle("SCANS_III_summer log_risk_index")
-
-ggarrange(a,b,c,d, labels = "Delphinus delphis log(risk_index)/season")
+d
+#ggarrange(a,b,c,d, labels = "Delphinus delphis log(risk_index)/season")
 
 
 
@@ -867,7 +974,7 @@ ggarrange(a,b,c,d, labels = "Delphinus delphis log(risk_index)/season")
 
 ```
 
-#### + Maps of log(density, effort, risk) / season
+##### + Maps of log(density, effort, risk) / season
 
 ```{r more maps}
 
@@ -1031,9 +1138,7 @@ ggarrange(d1,d2,d3, labels = "Delphinus delphis SCANS_III_summer")
 
 ```
 
-
-
-### Phocoena phocoena 
+### Phocoena phocoena
 
 ```{r marsouins}
 
@@ -1044,13 +1149,13 @@ ggarrange(d1,d2,d3, labels = "Delphinus delphis SCANS_III_summer")
 marsouin <- meg_polygons %>% filter(taxon %in% "PHOPHO")
 
 
-marsouin_SAMM_I_summer <- dauphin %>%
+marsouin_SAMM_I_summer <- marsouin %>%
   filter(session_global == "SAMM_1_summer")
-marsouin_SAMM_I_winter <- dauphin %>%
+marsouin_SAMM_I_winter <- marsouin %>%
   filter(session_global == "SAMM_1_winter")
-marsouin_SAMM_II_winter <- dauphin %>%
+marsouin_SAMM_II_winter <- marsouin %>%
   filter(session_global == "SAMM_2_winter")
-marsouin_SCANS_III_summer <- dauphin %>%
+marsouin_SCANS_III_summer <- marsouin %>%
   filter(session_global == "SCANS_3_summer")
 
 
@@ -1063,60 +1168,60 @@ effort_SAMM_II_winter <- st_transform(effort_SAMM_II_winter, crs = st_crs(marsou
 effort_SCANS_III_summer <- st_transform(effort_SCANS_III_summer, crs = st_crs(marsouin_SCANS_III_summer))
 
 
-SAMM_I_summer <- st_intersection(effort_SAMM_I_summer, marsouin_SAMM_I_summer)
-SAMM_I_winter <- st_intersection(effort_SAMM_I_winter, marsouin_SAMM_I_winter)
-SAMM_II_winter <- st_intersection(effort_SAMM_II_winter, marsouin_SAMM_II_winter)
-SCANS_III_summer <- st_intersection(effort_SCANS_III_summer, marsouin_SCANS_III_summer)
+m_SAMM_I_summer <- st_intersection(effort_SAMM_I_summer, marsouin_SAMM_I_summer)
+m_SAMM_I_winter <- st_intersection(effort_SAMM_I_winter, marsouin_SAMM_I_winter)
+m_SAMM_II_winter <- st_intersection(effort_SAMM_II_winter, marsouin_SAMM_II_winter)
+m_SCANS_III_summer <- st_intersection(effort_SCANS_III_summer, marsouin_SCANS_III_summer)
 
 
 # Grabbing the area
 # This gives me erroneous areas
 
-SAMM_I_summer$new_area <- st_area(SAMM_I_summer)
-SAMM_I_summer$new_area <- as.numeric(SAMM_I_summer$new_area)
+m_SAMM_I_summer$new_area <- st_area(m_SAMM_I_summer)
+m_SAMM_I_summer$new_area <- as.numeric(m_SAMM_I_summer$new_area)
 
 
-SAMM_I_winter$new_area <- st_area(SAMM_I_winter)
-SAMM_II_winter$new_area <- st_area(SAMM_II_winter)
-SCANS_III_summer$new_area <- st_area(SCANS_III_summer)
+m_SAMM_I_winter$new_area <- st_area(m_SAMM_I_winter)
+m_SAMM_II_winter$new_area <- st_area(m_SAMM_II_winter)
+m_SCANS_III_summer$new_area <- st_area(m_SCANS_III_summer)
 
 
 # Initially I just took the un-adjusted fishing_effort (meaning, not adjusted with statistic-rectangle area) due
 # to the fact the code wasn't working 
 # This gives us hours fished/m2
 
-SAMM_I_summer$adjusted_effort <- SAMM_I_summer$total_hrs_fish / SAMM_I_summer$area
-SAMM_I_summer$log_effort <- log(SAMM_I_summer$adjusted_effort)
-SAMM_I_summer$normalized_effort <- scale(SAMM_I_summer$adjusted_effort, center = T, scale = T)
+m_SAMM_I_summer$adjusted_effort <- m_SAMM_I_summer$total_hrs_fish / m_SAMM_I_summer$area
+m_SAMM_I_summer$log_effort <- log(m_SAMM_I_summer$adjusted_effort)
+m_SAMM_I_summer$normalized_effort <- scale(m_SAMM_I_summer$adjusted_effort, center = T, scale = T)
 
 # Adjusting effort according to area hrs/km2
 
-SAMM_I_winter$adjusted_effort <- SAMM_I_winter$total_hrs_fish / SAMM_I_winter$area
-SAMM_I_winter$log_effort <- log(SAMM_I_winter$adjusted_effort)
+m_SAMM_I_winter$adjusted_effort <- m_SAMM_I_winter$total_hrs_fish / m_SAMM_I_winter$area
+m_SAMM_I_winter$log_effort <- log(m_SAMM_I_winter$adjusted_effort)
 
-SAMM_II_winter$adjusted_effort <- SAMM_II_winter$total_hrs_fish / SAMM_II_winter$area
-SAMM_II_winter$log_effort <- log(SAMM_II_winter$adjusted_effort)
+m_SAMM_II_winter$adjusted_effort <- m_SAMM_II_winter$total_hrs_fish / m_SAMM_II_winter$area
+m_SAMM_II_winter$log_effort <- log(m_SAMM_II_winter$adjusted_effort)
 
-SCANS_III_summer$adjusted_effort <- SCANS_III_summer$total_hrs_fish / SCANS_III_summer$area
-SCANS_III_summer$log_effort <- log(SCANS_III_summer$adjusted_effort)
+m_SCANS_III_summer$adjusted_effort <- m_SCANS_III_summer$total_hrs_fish / m_SCANS_III_summer$area
+m_SCANS_III_summer$log_effort <- log(m_SCANS_III_summer$adjusted_effort)
 
 
 
 # However, OFB puts fish hours and dolphin density in log? and then does the risk index?
 # Plotted only for SAMM_I_summer at first
 
-SAMM_I_summer$risk_index <- SAMM_I_summer$adjusted_effort * SAMM_I_summer$density
-SAMM_I_summer$log_risk_index <- log(SAMM_I_summer$adjusted_effort * SAMM_I_summer$density)
+m_SAMM_I_summer$risk_index <- m_SAMM_I_summer$adjusted_effort * m_SAMM_I_summer$density
+m_SAMM_I_summer$log_risk_index <- log(m_SAMM_I_summer$adjusted_effort * m_SAMM_I_summer$density)
 
 
-SAMM_I_winter$risk_index <- SAMM_I_winter$adjusted_effort * SAMM_I_winter$density
-SAMM_I_winter$log_risk_index <- log(SAMM_I_winter$adjusted_effort * SAMM_I_winter$density)
+m_SAMM_I_winter$risk_index <- m_SAMM_I_winter$adjusted_effort * m_SAMM_I_winter$density
+m_SAMM_I_winter$log_risk_index <- log(m_SAMM_I_winter$adjusted_effort * m_SAMM_I_winter$density)
 
-SAMM_II_winter$log_risk_index <- log(SAMM_II_winter$adjusted_effort * SAMM_II_winter$density)
-SAMM_II_winter$log_risk_index <- log(SAMM_II_winter$adjusted_effort * SAMM_II_winter$density)
+m_SAMM_II_winter$log_risk_index <- log(m_SAMM_II_winter$adjusted_effort * m_SAMM_II_winter$density)
+m_SAMM_II_winter$log_risk_index <- log(m_SAMM_II_winter$adjusted_effort * m_SAMM_II_winter$density)
 
-SCANS_III_summer$normalized_risk_index <- scale(SCANS_III_summer$adjusted_effort * SCANS_III_summer$density)
-SCANS_III_summer$log_risk_index <- log(SCANS_III_summer$adjusted_effort * SCANS_III_summer$density)
+m_SCANS_III_summer$normalized_risk_index <- scale(m_SCANS_III_summer$adjusted_effort * m_SCANS_III_summer$density)
+m_SCANS_III_summer$log_risk_index <- log(m_SCANS_III_summer$adjusted_effort * m_SCANS_III_summer$density)
 
 
 #SCANS_III_summer$risk_index <- SCANS_III_summer$log_effort * SCANS_III_summer$log_density
@@ -1130,7 +1235,7 @@ rangey<-st_bbox(SAMM_I_summer)[c(2,4)]
 
 a <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_I_summer, aes(fill = log_risk_index )) +
+  geom_sf(data = m_SAMM_I_summer, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1142,7 +1247,7 @@ ggtitle("SAMM_I_summer log_risk_index")
 
 b <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_I_winter, aes(fill = log_risk_index )) +
+  geom_sf(data = m_SAMM_I_winter, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1153,7 +1258,7 @@ ggtitle("SAMM_I_winter log_risk_index")
 
 c <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_II_winter, aes(fill = log_risk_index )) +
+  geom_sf(data = m_SAMM_II_winter, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1164,7 +1269,7 @@ ggtitle("SAMM_II_winter log_risk_index")
 
 d <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SCANS_III_summer, aes(fill = log_risk_index )) +
+  geom_sf(data = m_SCANS_III_summer, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1177,7 +1282,7 @@ ggarrange(a,b,c,d, labels = "Marsouins log(risk_index)/season")
 
 ```
 
-#### + Maps of log(density, effort, risk) / season
+##### + Maps of log(density, effort, risk) / season
 
 ```{r}
 
@@ -1189,7 +1294,7 @@ ggarrange(a,b,c,d, labels = "Marsouins log(risk_index)/season")
 
 a1 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_I_summer, aes(fill = log_density )) +
+  geom_sf(data = m_SAMM_I_summer, aes(fill = log_density )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1200,7 +1305,7 @@ ggtitle("log_density")
 
 a2 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_I_summer, aes(fill = log_effort )) +
+  geom_sf(data = m_SAMM_I_summer, aes(fill = log_effort )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1211,7 +1316,7 @@ ggtitle("log_effort")
 
 a3 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_I_summer, aes(fill = log_risk_index )) +
+  geom_sf(data = m_SAMM_I_summer, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1227,7 +1332,7 @@ ggarrange(a1,a2,a3, labels = "Marsouins SAMM_I_summer")
 
 b1 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_I_winter, aes(fill = log_density )) +
+  geom_sf(data = m_SAMM_I_winter, aes(fill = log_density )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1238,7 +1343,7 @@ ggtitle("log_density")
 
 b2 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_I_winter, aes(fill = log_effort )) +
+  geom_sf(data = m_SAMM_I_winter, aes(fill = log_effort )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1249,7 +1354,7 @@ ggtitle("log_effort")
 
 b3 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_I_winter, aes(fill = log_risk_index )) +
+  geom_sf(data = m_SAMM_I_winter, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1267,7 +1372,7 @@ ggarrange(b1,b2,b3, labels = "Marsouins SAMM_I_winter")
 
 c1 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_II_winter, aes(fill = log_density )) +
+  geom_sf(data = m_SAMM_II_winter, aes(fill = log_density )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1278,7 +1383,7 @@ ggtitle("log_density")
 
 c2 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_II_winter, aes(fill = log_effort )) +
+  geom_sf(data = m_SAMM_II_winter, aes(fill = log_effort )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1289,7 +1394,7 @@ ggtitle("log_effort")
 
 c3 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SAMM_II_winter, aes(fill = log_risk_index )) +
+  geom_sf(data = m_SAMM_II_winter, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1306,7 +1411,7 @@ ggarrange(c1,c2,c3, labels = "Marsouins SAMM_II_winter")
 
 d1 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SCANS_III_summer, aes(fill = log_density )) +
+  geom_sf(data = m_SCANS_III_summer, aes(fill = log_density )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1317,7 +1422,7 @@ ggtitle("log_density")
 
 d2 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SCANS_III_summer, aes(fill = log_effort )) +
+  geom_sf(data = m_SCANS_III_summer, aes(fill = log_effort )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1328,7 +1433,7 @@ ggtitle("log_effort")
 
 d3 <- ggplot() + 
   theme_bw() +
-  geom_sf(data = SCANS_III_summer, aes(fill = log_risk_index )) +
+  geom_sf(data = m_SCANS_III_summer, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
@@ -1344,97 +1449,80 @@ ggarrange(d1,d2,d3, labels = "Marsouins SCANS_III_summer")
 ```
 
 
-```{r old code}
+# Birds
+
+## Bird data
+
+```{r Laridés spp}
 
 
-#### OLD CODE ####
-#### This wont work if run 
-#### It's not correct anyways 
+#print(unique(meg_polygons$taxon))
+
+#  "Petit_delphinine" "DELDEL"  "DELSPP"   "PHOPHO"   
+
+# "TURTRU" tursiops truncatus 
+
+# "Alcidae"  
+
+# "Goeland_gris"  "Goeland_noir"  
+
+# "LARGUL"  "LARMIN"   
+
+# "LARSPP" Laridae spp 
+
+# "Procellaridae"   
+
+# "SULBAS"  "RISTRI" "Mouette"         
+ 
+dd_dist <- meg_polygons %>%
+  filter(taxon %in% "LARSPP")
+dd_dist <- na.omit(dd_dist)
 
 
-#setting it all to sf to make sure they are shape objects
-
-fish_effort <- fish_effort %>% st_as_sf()
-
-
-
-dauphins <- dauphins %>% st_as_sf()
-
-# Check if CRS match
-#Here we put fish_effort CRS to the CRS of dauphins
-
-fish_effort_crs <- st_transform(fish_effort, crs = st_crs(dauphins))
-
-# creating geometry of dauphins that 'intersects' with fish_effort rectangle (SACROIS NIV5)
-
-risk_polygons <- st_crop(dauphins, fish_effort_crs)
-
-#joining the fish_effort data with the new geometry that intersects with fish_effort rectangles
-
-risk_polygons <- st_join(risk_polygons, fish_effort_crs)
-risk_polygons$st_area <- st_area(risk_polygons$geom)
-
-# Calculate the new fish_effort with the new area
-
-risk_polygons$new_fish_effort_m2 <- risk_polygons$area * risk_polygons$effort_per_unit_area
-#remplace avc densité 
-
-# Get rid of the spring and fall data
-
-risk_polygons <- risk_polygons[!(risk_polygons$Season.x %in% c("Spring", "Fall")), ]
-
-# Calculate the risk
-risk_polygons$risk_index <- risk_polygons$abund * risk_polygons$new_fish_effort_m2
+## Creating class intervals
+classes <- classIntervals(dd_dist$abund, n = 5, style = "quantile")
+dd_dist <- dd_dist %>%
+  mutate(percent_class = cut(abund, classes$brks, include.lowest = T))
+dd_dist <- dd_dist %>% select (taxon,abund, percent_class,session_global, geom)%>%st_as_sf()
 
 
-# Get the class intervals for mapping
-risk_polygons <- risk_polygons[!is.na(risk_polygons$risk_index),]
-classes <- classIntervals(risk_polygons$risk_index, n = 5, style = "jenks")
-risk_polygons <- risk_polygons %>%
-  mutate(percent_class = cut(risk_index, classes$brks, include.lowest = T))
+#dd_dist$abund_normalized <- scale(dd_dist$abund, center = min(dd_dist$abund), scale = max(dd_dist$abund) - min(dd_dist$abund))
 
-# This seems dumb bc we already converted the coordinate system of one file into another
-# And we're doing it again here bc it's way easier to map with WGS84 coordinate system
-risk_polygons_wg <- st_transform(risk_polygons, crs = st_crs("+proj=longlat +datum=WGS84"))
+## Log abundance
+
+dd_dist$log_abund <- log(dd_dist$abund)
 
 #get the limx and limy for coord_sf
-rangex<-st_bbox(risk_polygons_wg)[c(1,3)]
-rangey<-st_bbox(risk_polygons_wg)[c(2,4)]
+rangex<-st_bbox(dd_dist)[c(1,3)]
+rangey<-st_bbox(dd_dist)[c(2,4)]
 
-
-
-# MAP
-
-
-################ WINTER
-
-
-ggplot() + 
-  theme_bw() +
-  geom_sf(data = filter(risk_polygons_wg, Season.x %in% "Winter"), aes(fill = percent_class)) +
-  scale_fill_manual(values = brewer.pal(n = length(unique(risk_polygons_wg$percent_class)), name = 'Spectral'),
-                    name = "#") + 
-  #geom_point(data = BYC, aes(x = mean_LONG, y = mean_LAT), stat = "identity")+
+dd_abund <- ggplot() + 
+  theme_bw()+
+  geom_sf(data = dd_dist, aes(fill = percent_class))+
   borders("world", fill = "light grey", colour = "light grey") +
-  coord_sf(xlim = rangex, ylim = rangey) +
+  #scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  scale_fill_manual(values = brewer.pal(n = length(unique(dd_dist$percent_class)), name = 'Spectral'),
+                    name = "#") +  
+  coord_sf(rangex, rangey) +
   xlab("Longitude") + ylab("Latitude") +
-  facet_wrap(~FLOTTILLE_IFREMER_LIB)
-  ggtitle("Bycatch risk / flottille")
+  ggtitle("Laridés abundance")+
+  facet_wrap(~ session_global)
+dd_abund
 
-  
-################ SUMMER
-  
-  ggplot() + 
-    theme_bw() +
-    geom_sf(data = filter(risk_polygons_wg, Season.x %in% "Summer"), aes(fill = percent_class)) +
-    scale_fill_manual(values = brewer.pal(n = length(unique(risk_polygons_wg$percent_class)), name = 'Spectral'),
-                      name = "#") + 
-    geom_point(data = BYC, aes(x = mean_LONG, y = mean_LAT), stat = "identity")+
-    borders("world", fill = "light grey", colour = "light grey") +
-    coord_sf(xlim = rangex, ylim = rangey) +
-    xlab("Longitude") + ylab("Latitude") +
-    facet_wrap(~FLOTTILLE_IFREMER_LIB)
-  ggtitle("Bycatch risk / flottille")
+## Laridés log abundance 
 
+dd_log_abund <- ggplot() + 
+  theme_bw()+
+  geom_sf(data = dd_dist, aes(fill = log_abund))+
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  #scale_fill_manual(values = brewer.pal(n = length(unique(meg$percent_class)), name = 'Spectral'),
+                    #name = "#") +  
+  coord_sf(rangex, rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Laridés log_abund")+
+  facet_wrap(~ session_global)
+dd_log_abund
 
 ```
+
