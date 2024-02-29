@@ -135,6 +135,8 @@ select_manche <- select_manche %>%
 
 ```{r ICES}
 
+#this isn't used nor can it be used since it doesn't work
+
 
 ICES <- read_csv("D:/Data/Aires_decoupage_ICES.csv", col_types = cols(.default = "c"))
 
@@ -391,6 +393,7 @@ fish_effort <- fish_effort %>%
 # Very redundant and maybe there's a more concise way of going about this
 # But I need to calculate/grab fishing effort per megafauna survey period so 
 # When I do the st_intersection, the data matches and doesn't take forever to load
+
 fish_effort <- fish_effort %>% st_as_sf()
 
 fish_effort$log_effort <- log(fish_effort$total_hrs_fish)
@@ -418,11 +421,6 @@ effort_SCANS_III_summer <- fish_effort %>%
 ############### map w area effort
 
 
-#fish_effort %>%
-#  filter(SECT_COD_SACROIS_NIV5 != "")
-
-
-
 #get the limx and limy for coord_sf
 rangex<-st_bbox(fish_effort)[c(1,3)]
 rangey<-st_bbox(fish_effort)[c(2,4)]
@@ -434,7 +432,7 @@ map<-ggplot()+theme_bw()+
   scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(rangex,rangey)+
   xlab("Longitude")+ylab("Latitude")+
-  ggtitle("Fishing effort per survey season")+
+  ggtitle("log Fishing effort per survey season")+
   facet_wrap(~Source)
 map
 
@@ -450,7 +448,7 @@ ggplot() +
   scale_fill_distiller(palette = 'Spectral', name = "Value (unit)") +
   coord_sf(xlim = rangex, ylim = rangey) +  # Assuming `rangex` and `rangey` are defined
   xlab("Longitude") + ylab("Latitude") +
-  ggtitle("manche_SAMM_I_summer") +
+  ggtitle("log_effort manche_SAMM_I_summer") +
   facet_wrap(~ DCR_FLOTTILLE_LIB)
 
 
@@ -464,7 +462,7 @@ ggplot() +
   scale_fill_distiller(palette = 'Spectral', name = "Value (unit)") +
   coord_sf(xlim = rangex, ylim = rangey) +  # Assuming `rangex` and `rangey` are defined
   xlab("Longitude") + ylab("Latitude") +
-  ggtitle("manche_SAMM_I_winter") +
+  ggtitle("log_effort manche_SAMM_I_winter") +
   facet_wrap(~ DCR_FLOTTILLE_LIB)
 
 
@@ -480,7 +478,7 @@ ggplot() +
   scale_fill_distiller(palette = 'Spectral', name = "Value (unit)") +
   coord_sf(xlim = rangex, ylim = rangey) +  # Assuming `rangex` and `rangey` are defined
   xlab("Longitude") + ylab("Latitude") +
-  ggtitle("manche_SAMM_II_winter") +
+  ggtitle("log_effort manche_SAMM_II_winter") +
   facet_wrap(~ DCR_FLOTTILLE_LIB)
 
 
@@ -498,7 +496,7 @@ ggplot() +
   scale_fill_distiller(palette = 'Spectral', name = "Value (unit)") +
   coord_sf(xlim = rangex, ylim = rangey) +  # Assuming `rangex` and `rangey` are defined
   xlab("Longitude") + ylab("Latitude") +
-  ggtitle("manche_SCANS_III_summer") +
+  ggtitle("log_effort manche_SCANS_III_summer") +
   facet_wrap(~ DCR_FLOTTILLE_LIB)
 
 
@@ -598,15 +596,22 @@ sp_byc <- BYC %>%
 
 # Number of unspecified DCR_FLOTTILLE
 
-dm <- sp_byc %>% filter( ESPECE %in% c("Delphinidae delphis", "Phocoena phocoena")) 
+sp_byc <- sp_byc %>% filter( ESPECE %in% c("Delphinus delphis", "Phocoena phocoena")) 
 
-NA_byc <- sum(is.na(dm$DCR_FLOTTILLE_LIB)) / length(dm$DCR_FLOTTILLE_LIB)
+NA_byc <- sum(is.na(sp_byc$DCR_FLOTTILLE_LIB)) / length(sp_byc$DCR_FLOTTILLE_LIB)
 
-# 66.7% of dolphin/porpoise byc has no DCR_FLOTTILLE specified 
+# 66% of dolphin/porpoise byc has no DCR_FLOTTILLE specified 
 # Same goes for specified boat length
 
+byc_per_vessel <- sp_byc %>%
+  group_by(ID_NAVIRE, ESPECE) %>%
+  summarise(number_byc = n()) %>%
+  arrange(number_byc)
 
+byc_table <- byc_per_vessel %>%
+  pivot_wider(names_from = ESPECE, values_from = number_byc, values_fill = 0)
 
+# One vessel (chalut) has 11 byc of dolphins (2009,2011,2012), all during the winter (01, 02, 03)
 
 
 
@@ -624,8 +629,8 @@ sp_byc$Season <- cut(sp_byc$Month,
 
 
 
-byc_sacrois_match <- sp_byc %>%
-  left_join(select_manche2, by = c("NAVS_COD_YEAR" = "NAVS_COD_YEAR"))
+#byc_sacrois_match <- sp_byc %>%
+#  left_join(select_manche2, by = c("NAVS_COD_YEAR" = "NAVS_COD_YEAR"))
 
 
 
@@ -633,7 +638,9 @@ byc_sacrois_match <- sp_byc %>%
 
 # MAP BYC RISK
 
-## Dauphins / flottille IFREMER / Winter & Summer
+## Megafauna
+
+### Loading data
 
 ```{r Megafauna distribution data}
 
@@ -643,7 +650,7 @@ library(sf)
 library(ggplot2)
 library(RColorBrewer)
 library(data.table)
-
+library(ggpubr) 
 
 setwd("D:/Data")
 megafauna <- read_sf("20240214_ModelMegafauneSAMM.gpkg") #This file contains dolphin, porpoise, and seabirds
@@ -657,20 +664,6 @@ lat_max <- 51.5
 megafauna <- megafauna %>%
   filter(lon >= lon_min & lon <= lon_max & lat >= lat_min & lat <= lat_max)
 
-
-
-
-# Get the dolphin data
-
-dauphins <- megafauna %>%
-  filter(taxon %in% "DELDEL") %>%
-  select (taxon, abund, geom, session_global, area) #%>%
-  #group_by(taxon, abund, geom,session_global, area) #%>%
-  #summarize(abund = sum(abund, na.rm =F))
-
-```
-
-```{r}
 
 
 # Load ICES polygon data
@@ -688,13 +681,20 @@ megafauna <- st_transform(megafauna, crs = st_crs(ICES_data))
 #intersection of megafauna polygons with ICES_data to have accurate area of coastal polygons
 
 meg_polygons <- st_intersection(megafauna, ICES_data)
-#meg_polygons$meg_area <- as.numeric(meg_polygons$meg_area)
+# meg_polygons$meg_area <- st_area(meg_polygons) <-- st_area gives me weird values, disregarding st_area for the time being
+#i'll use the area of the megafauna dataset (pelagis) later on to adjust fishing effort
+
+
 
 # Grabbing dolphin density (#/km2)
 
 meg_polygons$density <- meg_polygons$abund / meg_polygons$area
 meg_polygons$log_density <- log(meg_polygons$density)
 
+# putting density in log for better visualization
+
+# testing other ways to normalize data for better visualization
+# this did not work (uniform color on map), the min max normalization did not have better results either
 
 #meg_polygons$normalized_density <- scale(meg_polygons$density, 
                                          #center = min(meg_polygons$density), 
@@ -704,11 +704,17 @@ meg_polygons$log_density <- log(meg_polygons$density)
 
 
 
+```
+### Delphinus delphis BYC risk
+
+```{r}
+
+
 # Grabbing Delphinus delphis only to start 
 
 dauphin <- meg_polygons %>% filter(taxon %in% "DELDEL")
 
-
+# breaking down everything per season so st_intersection matches and doesn't take forever
 
 dauphin_SAMM_I_summer <- dauphin %>%
   filter(session_global == "SAMM_1_summer")
@@ -721,18 +727,346 @@ dauphin_SCANS_III_summer <- dauphin %>%
 
 
 # Converting coordinate systems
-# Intersecting each fishing effort per survey season with dolphin data per survey season
+# matching the each data set with its corresponding season wasn't necessary but it was done anyways
 
 effort_SAMM_I_summer <- st_transform(effort_SAMM_I_summer, crs = st_crs(dauphin_SAMM_I_summer))
 effort_SAMM_I_winter <- st_transform(effort_SAMM_I_winter, crs = st_crs(dauphin_SAMM_I_summer))
 effort_SAMM_II_winter <- st_transform(effort_SAMM_II_winter, crs = st_crs(dauphin_SAMM_I_summer))
 effort_SCANS_III_summer <- st_transform(effort_SCANS_III_summer, crs = st_crs(dauphin_SAMM_I_summer))
 
+# Intersecting each fishing effort per survey season with dolphin data per survey season
+
 
 SAMM_I_summer <- st_intersection(effort_SAMM_I_summer, dauphin_SAMM_I_summer)
 SAMM_I_winter <- st_intersection(effort_SAMM_I_winter, dauphin_SAMM_I_winter)
 SAMM_II_winter <- st_intersection(effort_SAMM_II_winter, dauphin_SAMM_II_winter)
 SCANS_III_summer <- st_intersection(effort_SCANS_III_summer, dauphin_SCANS_III_summer)
+
+
+# Grabbing the area
+# This gives me erroneous areas, i'm letting it run in the code but i'm disregarding it for now
+
+SAMM_I_summer$new_area <- st_area(SAMM_I_summer)
+SAMM_I_summer$new_area <- as.numeric(SAMM_I_summer$new_area)
+
+
+SAMM_I_winter$new_area <- st_area(SAMM_I_winter)
+SAMM_II_winter$new_area <- st_area(SAMM_II_winter)
+SCANS_III_summer$new_area <- st_area(SCANS_III_summer)
+
+
+# For now I've only taken the un-adjusted fishing_effort (meaning, not adjusted with statistic-rectangle area) due
+# to the fact the code wasn't working 
+# This gives us hours fished/m2
+
+SAMM_I_summer$adjusted_effort <- SAMM_I_summer$total_hrs_fish / SAMM_I_summer$area
+SAMM_I_summer$log_effort <- log(SAMM_I_summer$adjusted_effort)
+SAMM_I_summer$normalized_effort <- scale(SAMM_I_summer$adjusted_effort, center = T, scale = T)
+
+# Now i'm adjusting effort according to area (Pelagis grid) hrs/km2
+
+SAMM_I_winter$adjusted_effort <- SAMM_I_winter$total_hrs_fish / SAMM_I_winter$area
+SAMM_I_winter$log_effort <- log(SAMM_I_winter$adjusted_effort)
+
+SAMM_II_winter$adjusted_effort <- SAMM_II_winter$total_hrs_fish / SAMM_II_winter$area
+SAMM_II_winter$log_effort <- log(SAMM_II_winter$adjusted_effort)
+
+SCANS_III_summer$adjusted_effort <- SCANS_III_summer$total_hrs_fish / SCANS_III_summer$area
+SCANS_III_summer$log_effort <- log(SCANS_III_summer$adjusted_effort)
+
+
+# However, OFB puts fish hours and dolphin density in log? and then does the risk index?
+# "L’indice de risque d’exposition est calculé suivant la formule suivante : DENSITE (ind/km2) x EFFORT DE PECHE (heures/mailles). Les deux paramètres (densités et efforts de pêches) sont log-normalisés vis-à-vis de la valeur maximale"
+
+
+# Plotted only for SAMM_I_summer at first
+
+SAMM_I_summer$risk_index <- SAMM_I_summer$adjusted_effort * SAMM_I_summer$density
+SAMM_I_summer$log_risk_index <- log(SAMM_I_summer$adjusted_effort * SAMM_I_summer$density)
+
+
+SAMM_I_winter$risk_index <- SAMM_I_winter$adjusted_effort * SAMM_I_winter$density
+SAMM_I_winter$log_risk_index <- log(SAMM_I_winter$adjusted_effort * SAMM_I_winter$density)
+
+SAMM_II_winter$log_risk_index <- log(SAMM_II_winter$adjusted_effort * SAMM_II_winter$density)
+SAMM_II_winter$log_risk_index <- log(SAMM_II_winter$adjusted_effort * SAMM_II_winter$density)
+
+SCANS_III_summer$normalized_risk_index <- scale(SCANS_III_summer$adjusted_effort * SCANS_III_summer$density)
+SCANS_III_summer$log_risk_index <- log(SCANS_III_summer$adjusted_effort * SCANS_III_summer$density)
+
+
+#SCANS_III_summer$risk_index <- SCANS_III_summer$log_effort * SCANS_III_summer$log_density
+
+#Put in log initially and had unsatisfying results, so let's try classint 
+
+rangex<-st_bbox(SAMM_I_summer)[c(1,3)]
+rangey<-st_bbox(SAMM_I_summer)[c(2,4)]
+
+# Remove # in front of facet_wrap to see risk per DCR_flottille (Fileyeurs, chalutiers de fond, chalutiers pélagiques)
+# There is an issue however when looking at specific flottille, can't figure out why the borders don't show up
+
+a <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_I_summer, aes(fill = log_risk_index )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("SAMM_I_summer log_risk_index")
+
+
+
+b <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_I_winter, aes(fill = log_risk_index )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("SAMM_I_winter log_risk_index")
+
+
+c <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_II_winter, aes(fill = log_risk_index )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("SAMM_II_winter log_risk_index")
+
+
+d <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SCANS_III_summer, aes(fill = log_risk_index )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("SCANS_III_summer log_risk_index")
+
+ggarrange(a,b,c,d, labels = "Delphinus delphis log(risk_index)/season")
+
+
+
+# The map is obviously wrong
+# Put the risk_index in log initially and had similar results
+# Is it the classint/log() that is wrong? Is it area calc?
+
+
+#### mapping stuff 
+#plot(risk_polygons$geom, col = 'lightblue')
+#plot(megafauna$geom, col = "pink")
+
+
+
+
+```
+
+#### + Maps of log(density, effort, risk) / season
+
+```{r more maps}
+
+# Remove # in front of facet_wrap to see risk per DCR_flottille (Fileyeurs, chalutiers de fond, chalutiers pélagiques)
+# There is an issue however when looking at specific flottille, can't figure out why the borders don't show up
+
+# SAMM_I_summer
+
+a1 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_I_summer, aes(fill = log_density )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_density")
+
+
+a2 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_I_summer, aes(fill = log_effort )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_effort")
+
+
+a3 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_I_summer, aes(fill = log_risk_index )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_risk_index")
+
+ggarrange(a1,a2,a3, labels = "Delphinus delphis SAMM_I_summer")
+
+#####################################################################
+
+# SAMM_I_winter
+
+b1 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_I_winter, aes(fill = log_density )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_density")
+
+
+b2 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_I_winter, aes(fill = log_effort )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_effort")
+
+
+b3 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_I_winter, aes(fill = log_risk_index )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_risk_index")
+
+ggarrange(b1,b2,b3, labels = "Delphinus delphis SAMM_I_winter")
+
+
+#####################################################################
+
+
+# SAMM_II_winter
+
+c1 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_II_winter, aes(fill = log_density )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_density")
+
+
+c2 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_II_winter, aes(fill = log_effort )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_effort")
+
+
+c3 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SAMM_II_winter, aes(fill = log_risk_index )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_risk_index")
+
+ggarrange(c1,c2,c3, labels = "Delphinus delphis SAMM_II_winter")
+
+
+#####################################################################
+
+# SCANS_III_summer
+
+d1 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SCANS_III_summer, aes(fill = log_density )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_density")
+
+
+d2 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SCANS_III_summer, aes(fill = log_effort )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_effort")
+
+
+d3 <- ggplot() + 
+  theme_bw() +
+  geom_sf(data = SCANS_III_summer, aes(fill = log_risk_index )) +
+  borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
+  coord_sf(xlim = rangex, ylim = rangey) +
+  xlab("Longitude") + ylab("Latitude") +
+  #facet_wrap(~DCR_FLOTTILLE_LIB)
+ggtitle("log_risk_index")
+
+ggarrange(d1,d2,d3, labels = "Delphinus delphis SCANS_III_summer")
+
+
+
+```
+
+
+
+### Phocoena phocoena 
+
+```{r marsouins}
+
+# Remove # in front of facet_wrap to see risk per DCR_flottille (Fileyeurs, chalutiers de fond, chalutiers pélagiques)
+# There is an issue however when looking at specific flottille, can't figure out why the borders don't show up
+
+
+marsouin <- meg_polygons %>% filter(taxon %in% "PHOPHO")
+
+
+marsouin_SAMM_I_summer <- dauphin %>%
+  filter(session_global == "SAMM_1_summer")
+marsouin_SAMM_I_winter <- dauphin %>%
+  filter(session_global == "SAMM_1_winter")
+marsouin_SAMM_II_winter <- dauphin %>%
+  filter(session_global == "SAMM_2_winter")
+marsouin_SCANS_III_summer <- dauphin %>%
+  filter(session_global == "SCANS_3_summer")
+
+
+# Converting coordinate systems
+# Intersecting each fishing effort per survey season with dolphin data per survey season
+
+effort_SAMM_I_summer <- st_transform(effort_SAMM_I_summer, crs = st_crs(marsouin_SAMM_I_summer))
+effort_SAMM_I_winter <- st_transform(effort_SAMM_I_winter, crs = st_crs(marsouin_SAMM_I_winter))
+effort_SAMM_II_winter <- st_transform(effort_SAMM_II_winter, crs = st_crs(marsouin_SAMM_II_winter))
+effort_SCANS_III_summer <- st_transform(effort_SCANS_III_summer, crs = st_crs(marsouin_SCANS_III_summer))
+
+
+SAMM_I_summer <- st_intersection(effort_SAMM_I_summer, marsouin_SAMM_I_summer)
+SAMM_I_winter <- st_intersection(effort_SAMM_I_winter, marsouin_SAMM_I_winter)
+SAMM_II_winter <- st_intersection(effort_SAMM_II_winter, marsouin_SAMM_II_winter)
+SCANS_III_summer <- st_intersection(effort_SCANS_III_summer, marsouin_SCANS_III_summer)
 
 
 # Grabbing the area
@@ -792,15 +1126,13 @@ SCANS_III_summer$log_risk_index <- log(SCANS_III_summer$adjusted_effort * SCANS_
 rangex<-st_bbox(SAMM_I_summer)[c(1,3)]
 rangey<-st_bbox(SAMM_I_summer)[c(2,4)]
 
-
-library(ggpubr)
-
-
+# Remove # in front of facet_wrap to see risk per DCR_flottille (Fileyeurs, chalutiers de fond, chalutiers pélagiques)
 
 a <- ggplot() + 
   theme_bw() +
   geom_sf(data = SAMM_I_summer, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -812,6 +1144,7 @@ b <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_I_winter, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -822,6 +1155,7 @@ c <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_II_winter, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -832,35 +1166,24 @@ d <- ggplot() +
   theme_bw() +
   geom_sf(data = SCANS_III_summer, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
 ggtitle("SCANS_III_summer log_risk_index")
 
-ggarrange(a,b,c,d)
-
-
-
-# The map is obviously wrong
-# Put the risk_index in log initially and had similar results
-# Is it the classint/log() that is wrong? Is it area calc?
-
-
-#### mapping stuff 
-
-
-plot(risk_polygons$geom, col = 'lightblue')
-
-plot(megafauna$geom, col = "pink")
-
-
+ggarrange(a,b,c,d, labels = "Marsouins log(risk_index)/season")
 
 
 ```
 
-## more maps
+#### + Maps of log(density, effort, risk) / season
 
-```{r more maps}
+```{r}
+
+# Remove # in front of facet_wrap to see risk per DCR_flottille (Fileyeurs, chalutiers de fond, chalutiers pélagiques)
+# There is an issue however when looking at specific flottille, can't figure out why the borders don't show up
+
 
 # SAMM_I_summer
 
@@ -868,6 +1191,7 @@ a1 <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_I_summer, aes(fill = log_density )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -878,6 +1202,7 @@ a2 <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_I_summer, aes(fill = log_effort )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -888,12 +1213,13 @@ a3 <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_I_summer, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
 ggtitle("log_risk_index")
 
-ggarrange(a1,a2,a3, labels = "SAMM_I_summer")
+ggarrange(a1,a2,a3, labels = "Marsouins SAMM_I_summer")
 
 #####################################################################
 
@@ -903,6 +1229,7 @@ b1 <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_I_winter, aes(fill = log_density )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -913,6 +1240,7 @@ b2 <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_I_winter, aes(fill = log_effort )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -923,12 +1251,13 @@ b3 <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_I_winter, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
 ggtitle("log_risk_index")
 
-ggarrange(b1,b2,b3, labels = "SAMM_I_winter")
+ggarrange(b1,b2,b3, labels = "Marsouins SAMM_I_winter")
 
 
 #####################################################################
@@ -940,6 +1269,7 @@ c1 <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_II_winter, aes(fill = log_density )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -950,6 +1280,7 @@ c2 <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_II_winter, aes(fill = log_effort )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -960,12 +1291,13 @@ c3 <- ggplot() +
   theme_bw() +
   geom_sf(data = SAMM_II_winter, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
 ggtitle("log_risk_index")
 
-ggarrange(c1,c2,c3, labels = "SAMM_II_winter")
+ggarrange(c1,c2,c3, labels = "Marsouins SAMM_II_winter")
 
 
 #####################################################################
@@ -976,6 +1308,7 @@ d1 <- ggplot() +
   theme_bw() +
   geom_sf(data = SCANS_III_summer, aes(fill = log_density )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -986,6 +1319,7 @@ d2 <- ggplot() +
   theme_bw() +
   geom_sf(data = SCANS_III_summer, aes(fill = log_effort )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
@@ -996,139 +1330,18 @@ d3 <- ggplot() +
   theme_bw() +
   geom_sf(data = SCANS_III_summer, aes(fill = log_risk_index )) +
   borders("world", fill = "light grey", colour = "light grey") +
+  scale_fill_distiller(palette='Spectral',name="Value (unit)")+
   coord_sf(xlim = rangex, ylim = rangey) +
   xlab("Longitude") + ylab("Latitude") +
   #facet_wrap(~DCR_FLOTTILLE_LIB)
 ggtitle("log_risk_index")
 
-ggarrange(d1,d2,d3, labels = "SCANS_III_summer")
+ggarrange(d1,d2,d3, labels = "Marsouins SCANS_III_summer")
 
-
-
-```
-
-
-
-## Marsouins
-
-```{r marsouins}
-
-dauphin <- meg_polygons %>% filter(taxon %in% "PHOPHO")
-
-
-
-dauphin_SAMM_I_summer <- dauphin %>%
-  filter(session_global == "SAMM_1_summer")
-dauphin_SAMM_I_winter <- dauphin %>%
-  filter(session_global == "SAMM_1_winter")
-dauphin_SAMM_II_winter <- dauphin %>%
-  filter(session_global == "SAMM_2_winter")
-dauphin_SCANS_III_summer <- dauphin %>%
-  filter(session_global == "SCANS_3_summer")
-
-
-# Intersecting each fishing effort per survey season with dolphin data per survey season
-
-effort_SAMM_I_summer <- st_transform(effort_SAMM_I_summer, crs = st_crs(dauphin_SAMM_I_summer))
-effort_SAMM_I_winter <- st_transform(effort_SAMM_I_winter, crs = st_crs(dauphin_SAMM_I_summer))
-effort_SAMM_II_winter <- st_transform(effort_SAMM_II_winter, crs = st_crs(dauphin_SAMM_I_summer))
-effort_SCANS_III_summer <- st_transform(effort_SCANS_III_summer, crs = st_crs(dauphin_SAMM_I_summer))
-
-
-
-SAMM_I_summer <- st_intersection(effort_SAMM_I_summer, dauphin_SAMM_I_summer)
-
-SAMM_I_winter <- st_intersection(effort_SAMM_I_winter, dauphin_SAMM_I_winter)
-
-SAMM_II_winter <- st_intersection(effort_SAMM_II_winter, dauphin_SAMM_II_winter)
-
-SCANS_III_summer <- st_intersection(effort_SCANS_III_summer, dauphin_SCANS_III_summer)
-
-# Grabbing the area
-
-SAMM_I_summer$new_area <- st_area(SAMM_I_summer)
-SAMM_I_summer$new_area <- as.numeric(SAMM_I_summer$new_area)
-
-SAMM_I_winter$new_area <- st_area(SAMM_I_winter)
-
-SAMM_II_winter$new_area <- st_area(SAMM_II_winter)
-
-SCANS_III_summer$new_area <- st_area(SCANS_III_summer)
-
-
-# Initially I just took the un-adjusted fishing_effort (meaning, not adjusted with statistic-rectangle area) due
-# to the fact the code wasn't working 
-# This gives us hours fished/m2
-
-SAMM_I_summer$adjusted_effort <- SAMM_I_summer$log_effort * SAMM_I_summer$new_area
-
-SAMM_I_winter$adjusted_effort <- SAMM_I_winter$total_hrs_fish / SAMM_I_winter$new_area
-
-SAMM_II_winter$adjusted_effort <- SAMM_II_winter$total_hrs_fish / SAMM_II_winter$new_area
-
-SCANS_III_summer$adjusted_effort <- SCANS_III_summer$total_hrs_fish / SCANS_III_summer$new_area
-
-
-# However, OFB puts fish hours and dolphin density in log? and then does the risk index?
-# Plotted only for SAMM_I_summer at first
-
-SAMM_I_summer$risk_index <- SAMM_I_summer$adjusted_effort * SAMM_I_summer$log_density
-
-SAMM_I_winter$risk_index <- SAMM_I_winter$adjusted_effort * SAMM_I_winter$abund
-
-SAMM_II_winter$risk_index <- SAMM_II_winter$adjusted_effort * SAMM_II_winter$abund
-
-SCANS_III_summer$risk_index <- SCANS_III_summer$adjusted_effort * SCANS_III_summer$abund
-
-#Put in log initially and had unsatisfying results, so let's try classint 
-
-rangex<-st_bbox(SAMM_I_summer)[c(1,3)]
-rangey<-st_bbox(SAMM_I_summer)[c(2,4)]
-
-
-ggplot() + 
-  theme_bw() +
-  geom_sf(data = SAMM_I_summer, aes(fill = log_density )) +
-  borders("world", fill = "light grey", colour = "light grey") +
-  coord_sf(xlim = rangex, ylim = rangey) +
-  xlab("Longitude") + ylab("Latitude") +
-  #facet_wrap(~DCR_FLOTTILLE_LIB)
-ggtitle("log_density")
-
-
-ggplot() + 
-  theme_bw() +
-  geom_sf(data = SAMM_I_summer, aes(fill = log_effort )) +
-  borders("world", fill = "light grey", colour = "light grey") +
-  coord_sf(xlim = rangex, ylim = rangey) +
-  xlab("Longitude") + ylab("Latitude") +
-  #facet_wrap(~DCR_FLOTTILLE_LIB)
-ggtitle("log_effort")
-
-
-ggplot() + 
-  theme_bw() +
-  geom_sf(data = SAMM_I_summer, aes(fill = adjusted_effort )) +
-  borders("world", fill = "light grey", colour = "light grey") +
-  coord_sf(xlim = rangex, ylim = rangey) +
-  xlab("Longitude") + ylab("Latitude") +
-  #facet_wrap(~DCR_FLOTTILLE_LIB)
-ggtitle("log_effort")
-
-ggplot() + 
-  geom_sf(data = SAMM_I_summer, aes(fill = risk_index )) +
-  borders("world", fill = "light grey", colour = "light grey") +
-  coord_sf(xlim = rangex, ylim = rangey) +
-  xlab("Longitude") + ylab("Latitude") +
-    theme_bw() +
-  #facet_wrap(~DCR_FLOTTILLE_LIB)
-ggtitle("risk_index")
 
 
 
 ```
-
-
 
 
 ```{r old code}
