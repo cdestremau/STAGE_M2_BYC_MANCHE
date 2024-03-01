@@ -4,10 +4,15 @@ library(ggplot2)
 library(sf)
 library(dplyr)
 
+
+setwd("C:/Users/cdestrem/Documents/STAGE_M2_BYC_MANCHE/DatagGen")
+
+
+
 #load rect and ices data from R file
-div<-readRDS(file="../data/div.rds")
-rect<-readRDS("../data/rect.rds")
-subrect<-readRDS("../data/subrect.rds")
+div<-readRDS(file="div.rds")
+rect<-readRDS("rect.rds")
+subrect<-readRDS("subrect.rds")
 #these objects have geometry (class sf) and can be used as support for mapping 
 
 #generate some data
@@ -35,6 +40,7 @@ map<-ggplot()+theme_bw()+
 	scale_fill_distiller(palette='Spectral',name="Value (unit)")+
 	coord_sf(rangex,rangey)+
 	xlab("Longitude")+ylab("Latitude")+
+  scale_x_continuous(breaks = seq(min(rangex), max(rangex), by = 1)) +
 	ggtitle("a gentle title")
 map
 

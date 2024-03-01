@@ -1,0 +1,122 @@
+---
+title: "Birds"
+format: html
+editor: visual
+---
+
+```{r}
+
+library(ggplot2)
+
+library(data.table) #more efficient management of large data sets
+
+library(RVAideMemoire) #used for post-hoc tests in exploratory analyses
+
+library(stringr) # handling character string format in R
+
+setwd("D:/Data/FREE2_OBSMER_serie")
+
+OBSMER_BYC_2021<-read.csv2("CAPTURES.csv", fileEncoding="ISO-8859-3")
+setDT(OBSMER_BYC_2021)
+#OBSMER_BYC_2021=OBSMER_BYC_2021[ESPECE=="Delphinus delphis",]
+OBSMER_BYC_2021 <- subset(OBSMER_BYC_2021, select = -c(ID_DETAIL, CAT, ESPECE_COM, TAUX_ECH, POIDS_REF, WEIGHT_RTP, PRODUCT_DESTINATION, CONVERSION_COEFFICIENT, ALL_TAUX_ECH))
+
+
+#Add strategy data
+strat<-read.csv2("STRATEGIE.csv", fileEncoding="ISO-8859-3")
+setDT(strat)
+
+#Combine the two datasets and sort them via the ID_VRAC variable
+OBSMER_BYC_2021=merge(OBSMER_BYC_2021, strat[,.(ID_VRAC,ID_OP)], by="ID_VRAC", all.x = T, all.y=F)
+
+#Add operation data
+operation<-read.csv2("OPERATION_PECHE.csv", fileEncoding="ISO-8859-3")
+setDT(operation)
+
+operation <- subset(operation, select = c(ID_OP, DATE_FIN, DUREE_OP, RECTANGLE, PROF_FOND, PROF_ENGIN, ID_MAREE,ENGIN, METIER1, LONG_DEB_OP,LAT_DEB_OP, LONG_FIN_OP, LAT_FIN_OP, ESPECE_CIBLE, MAILL, EFFORT, ID_OP,ZONE))
+setDT(operation)
+
+#Repeat merge 
+
+OBSMER_BYC_2021=merge(OBSMER_BYC_2021, operation[,.(DATE_FIN, DUREE_OP, RECTANGLE, PROF_FOND, PROF_ENGIN, ID_MAREE,ENGIN, METIER1, LONG_DEB_OP,LAT_DEB_OP, LONG_FIN_OP, LAT_FIN_OP, ESPECE_CIBLE, MAILL, EFFORT, ID_OP,ZONE)], by="ID_OP", all.x = T, all.y=F)
+
+DETAIL<-read.csv2("DETAIL.csv", fileEncoding="ISO-8859-3")
+setDT(DETAIL)
+
+#select data in the region of interest, here english channel
+OBSMER_BYC_2021=OBSMER_BYC_2021[ZONE %in% c("27.7.e","27.7.d"),]
+
+
+OBSMER_BYC <- OBSMER_BYC_2021
+
+BYC <- OBSMER_BYC
+
+
+
+
+
+bird_byc <- rbind(
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Alca torda", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Uria aalge", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Alcidae", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Phalacrocorax aristotelis", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Phalacrocorax carbo", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Morus bassanus", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Gavia stellata", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Gavia immer", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Phalacrocorax aristotelis", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Larus marinus", ],
+  OBSMER_BYC_2021[OBSMER_BYC_2021$ESPECE == "Larus argentatus", ]
+)
+
+bird_byc$NOMBRE[is.na(bird_byc$NOMBRE)] <- 1
+
+
+install.packages("FactoMineR")
+library(FactoMineR)
+
+
+
+
+```
+
+You can add options to executable code like this
+
+```{r mca factominer}
+
+library(dplyr)
+library(FactoMineR)
+
+bird_byc$RECTANGLE <- as.factor(bird_byc$RECTANGLE)
+bird_byc$ENGIN <- as.factor(bird_byc$ENGIN)
+bird_byc$ESPECE_CIBLE <- as.factor(bird_byc$ESPECE_CIBLE)
+bird_byc$ESPECE <- as.factor(bird_byc$ESPECE)
+bird_byc$DUREE_OP <- as.factor(bird_byc$DUREE_OP)
+
+
+bird_byc <- bird_byc %>%
+  filter(!is.na(ESPECE) & !is.na(DUREE_OP) & !is.na(RECTANGLE) & !is.na(ENGIN) & !is.na(ESPECE_CIBLE))
+
+# Perform MCA
+mca_result <- MCA(bird_byc, graph = TRUE)
+
+
+plot.MCA(mca_result)
+
+```
+
+```{r}
+#install.packages("ca")
+library(ca)
+
+mca_result <- ca(bird_byc)
+
+summary(mca_result)
+
+# Eigenvalues
+mca_result$eigen
+
+# Contributions of rows and columns to dimensions
+mca_result$col.sup
+mca_result$row.sup
+```

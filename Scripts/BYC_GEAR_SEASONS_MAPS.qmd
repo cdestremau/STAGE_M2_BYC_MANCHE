@@ -1,0 +1,322 @@
+---
+title: "Maps_Saisons_BYC_Engin"
+author: "CMD"
+format: html
+editor: visual
+---
+
+# Map : fishing sequence of at-risk gear type and their associated bycatch
+
+## Data
+
+```{r data}
+
+####################################################################################
+
+                        ########## DATA ##########
+
+library(data.table)
+library(dplyr)
+library(ggplot2)
+
+setwd("D:/Data/FREE2_OBSMER_serie")
+
+BYC<-read.csv2("CAPTURES.csv", fileEncoding="ISO-8859-3")
+setDT(BYC)
+#OBSMER_BYC_2021=OBSMER_BYC_2021[ESPECE=="Delphinus delphis",]
+#BYC <- subset(BYC, select = -c(ID_DETAIL, CAT, ESPECE_COM, TAUX_ECH, POIDS_REF,WEIGHT_RTP, PRODUCT_DESTINATION, CONVERSION_COEFFICIENT, ALL_TAUX_ECH))
+#Add strategy data
+strat<-read.csv2("STRATEGIE.csv", fileEncoding="ISO-8859-3")
+setDT(strat)
+#Combine the two datasets and sort them via the ID_VRAC variable
+BYC=merge(BYC, strat[,.(ID_VRAC,ID_OP)], by="ID_VRAC", all.x = T, all.y=F)
+#Add operation data
+operation<-read.csv2("OPERATION_PECHE.csv", fileEncoding="ISO-8859-3")
+setDT(operation)
+operation <- subset(operation, select = c(ID_OP, DATE_FIN, DUREE_OP, RECTANGLE, 
+                                          PROF_FOND, PROF_ENGIN, ID_MAREE,ENGIN, METIER1, 
+                                          LONG_DEB_OP,LAT_DEB_OP, LONG_FIN_OP, LAT_FIN_OP, 
+                                          ESPECE_CIBLE, MAILL, EFFORT, ID_OP,ZONE))
+setDT(operation)
+#Repeat merge 
+BYC=merge(BYC, operation[,.(DATE_FIN, DUREE_OP, RECTANGLE, PROF_FOND, PROF_ENGIN, 
+                            ID_MAREE,ENGIN, METIER1, LONG_DEB_OP,LAT_DEB_OP, LONG_FIN_OP,
+                            LAT_FIN_OP, ESPECE_CIBLE, MAILL, EFFORT, ID_OP,ZONE)], by="ID_OP", all.x = T, all.y=F)
+
+
+#select data in the region of interest, here english channel
+BYC=BYC[ZONE %in% c("27.7.e","27.7.d"),]
+
+
+####################################################################################
+
+                        ########## COORDINATE ##########
+
+    # We only have coordinates for debut/fin of each maree
+    # So we take the mean of both coordinates 
+
+BYC$LAT_DEB_OP <- as.numeric(BYC$LAT_DEB_OP)
+BYC$LAT_FIN_OP <- as.numeric(BYC$LAT_FIN_OP)
+BYC$LONG_DEB_OP <- as.numeric(BYC$LONG_DEB_OP)
+BYC$LONG_FIN_OP <- as.numeric(BYC$LONG_FIN_OP)
+
+
+BYC <- BYC %>% 
+  mutate(mean_LAT = (LAT_DEB_OP + LAT_FIN_OP) / 2,
+         mean_LONG = (LONG_DEB_OP + LONG_FIN_OP) / 2)
+
+
+####################################################################################
+
+                        ########## SAISONS ##########
+
+library(dplyr)
+library(lubridate)
+
+# Convert the date column to a DateTime object using lubridate
+BYC$DATE_FIN <- dmy_hms(BYC$DATE_FIN)
+
+# Extract day, month, year, and time into separate columns
+BYC$Day <- day(BYC$DATE_FIN)
+BYC$Month <- month(BYC$DATE_FIN)
+BYC$Year <- year(BYC$DATE_FIN)
+BYC$Time <- format(BYC$DATE_FIN, "%H:%M:%S")
+
+
+BYC$Season <- cut(BYC$Month, 
+                  breaks = c(0, 2, 5, 8, 11, Inf), 
+                  labels = c("Winter", "Spring", "Summer", "Fall", "Winter"),
+                  include.lowest = TRUE)
+
+
+
+####################################################################################
+
+                        ########## MEGAFAUNA ##########
+
+
+
+megafauna <- rbind(
+  BYC[BYC$ESPECE == "Halichoerus grypus", ],
+  BYC[BYC$ESPECE == "Delphinus delphis", ],
+  BYC[BYC$ESPECE == "Phocoena phocoena", ],
+  BYC[BYC$ESPECE == "Phoca vitulina", ],
+  BYC[BYC$ESPECE == "Globicephala melas", ]
+)
+
+
+points_megafauna <- data.frame(lon = megafauna$mean_LONG, lat = megafauna$mean_LAT, Species = megafauna$ESPECE, Season = megafauna$Season, Engin = megafauna$ENGIN)
+
+
+
+# Map 
+
+world_map <- map_data("world")
+
+
+```
+
+# Maps of bycatch \~ gear type, per season
+
+## PTM - Chaluts boeufs pélagiques
+
+```{r PTM }
+
+#| echo: false
+
+# All PTM fishing sequence coordinates
+
+ptm <- BYC %>%
+  filter(ENGIN == 'PTM - Chaluts boeufs pélagiques')
+points_ptm <- data.frame(lon = ptm$mean_LONG, lat = ptm$mean_LAT, Season = ptm$Season, Engin = ptm$ENGIN)
+
+
+# PTM bycatch coordinates
+
+points_megafauna <- data.frame(lon = megafauna$mean_LONG, lat = megafauna$mean_LAT, Species = megafauna$ESPECE, Season = megafauna$Season, Engin = megafauna$ENGIN)
+
+ptm_megafauna <- points_megafauna %>%
+  filter(Engin == "PTM - Chaluts boeufs pélagiques")
+
+
+# Combine both datasets
+
+combined_data <- bind_rows(
+  mutate(points_ptm, dataset = "PTM Vessels"),
+  mutate(ptm_megafauna, dataset = "Bycatch Species")
+)
+
+# Map 
+
+world_map <- map_data("world")
+
+ggplot() +
+  geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill = "white", color = "black") +
+  coord_cartesian(xlim = c(-7, 2), ylim = c(48, 51))+  
+  geom_point(data = combined_data, aes(x = lon, y = lat, color = Species, group = interaction(dataset, Season)), size = 2) +
+  facet_wrap(~Season) +
+  ggtitle("PTM vessels & associated bycatch")+
+  labs(fill = "Espèces", x = "Longitude", y = "Latitude")+
+  theme_light()
+
+
+```
+
+## GTR - Trémails
+
+```{r GTR}
+
+#| echo: false
+
+# All GTR fishing sequence coordinates
+  
+  gtr <- BYC %>%
+    filter(ENGIN == 'GTR - Trémails')
+  points_gtr <- data.frame(lon = gtr$mean_LONG, lat = gtr$mean_LAT, Season = gtr$Season, Engin = gtr$ENGIN)
+
+  
+# GTR bycatch coordinates
+  
+  gtr_megafauna <- points_megafauna %>%
+    filter(Engin == "GTR - Trémails")
+
+# Combine both datasets
+  
+  gtr_combined <- bind_rows(
+    mutate(points_gtr, dataset = "GTR Vessels"),
+    mutate(gtr_megafauna, dataset = "Bycatch Species"))
+
+  
+# Map
+  
+  ggplot() +
+    geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill = "white", color = "black") +
+    coord_cartesian(xlim = c(-7, 2), ylim = c(48, 51))+  
+    geom_point(data = gtr_combined, aes(x = lon, y = lat, color = Species, group = interaction(dataset, Season)), size = 2) +
+    facet_wrap(~Season) +
+    ggtitle("GTR vessels & associated bycatch")+
+    labs(fill = "Espèces", x = "Longitude", y = "Latitude")+
+  theme_light()
+
+```
+
+## OTB- Chaluts de fond à panneaux
+
+```{r OTB}
+
+#| echo: false
+
+# All OTB fishing sequence coordinates
+  
+  otb <- BYC %>%
+    filter(ENGIN == 'OTB - Chaluts de fond à panneaux')
+  points_otb <- data.frame(lon = otb$mean_LONG, lat = otb$mean_LAT, Season = otb$Season, Engin = otb$ENGIN)
+
+  
+# OTB bycatch coordinates
+  
+  otb_megafauna <- points_megafauna %>%
+    filter(Engin == "OTB - Chaluts de fond à panneaux")
+  
+# Combined data
+  
+  otb_combined <- bind_rows(
+    mutate(points_otb, dataset = "OTB Vessels"),
+    mutate(otb_megafauna, dataset = "Bycatch Species")
+  )
+  
+# Map
+  
+  ggplot() +
+    geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill = "white", color = "black") +
+    coord_cartesian(xlim = c(-7, 2), ylim = c(48, 51))+  
+    geom_point(data = otb_combined, aes(x = lon, y = lat, color = Species, group = interaction(dataset, Season)), size = 2) +
+    facet_wrap(~Season) +
+    ggtitle("OTB vessels & associated bycatch")+
+    labs(fill = "Espèces", x = "Longitude", y = "Latitude")+
+  theme_light()
+
+
+
+```
+
+## GNS - Filets maillants calés (ancrés, filets maillants de fond à une nappe)
+
+```{r GNS}
+
+#| echo: false
+
+# All GNS fishing sequence coordinates
+
+  gns <- BYC %>%
+    filter(ENGIN == 'GNS - Filets maillants calés (ancrés, filets maillants de fond à une nappe)')
+  points_gns <- data.frame(lon = gns$mean_LONG, lat = gns$mean_LAT, Season = gns$Season, Engin = gns$ENGIN)
+  
+  
+# GNS bycatch coordinates
+  
+  gns_megafauna <- points_megafauna %>%
+    filter(Engin == "GNS - Filets maillants calés (ancrés, filets maillants de fond à une nappe)")
+  
+# Combined data
+  
+  gns_combined <- bind_rows(
+    mutate(points_gns, dataset = "GNS Vessels"),
+    mutate(gns_megafauna, dataset = "Bycatch Species")
+  )
+  
+  
+# Map
+  
+  ggplot() +
+    geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill = "white", color = "black") +
+    coord_cartesian(xlim = c(-7, 2), ylim = c(48, 51))+  
+    geom_point(data = gns_combined, aes(x = lon, y = lat, color = Species, group = interaction(dataset, Season)), size = 2) +
+    facet_wrap(~Season) +
+    ggtitle("GNS vessels & associated bycatch")+
+    labs(fill = "Espèces", x = "Longitude", y = "Latitude")+
+  theme_light()
+
+
+```
+
+## PS - Filets tournants avec coulisse (sennes coulissantes)
+
+```{r PS}
+#| echo: false
+
+# All GNS fishing sequence coordinates
+
+  ps <- BYC %>%
+    filter(ENGIN == 'PS - Filets tournants avec coulisse (sennes coulissantes)')
+  points_ps <- data.frame(lon = ps$mean_LONG, lat = ps$mean_LAT, Season = ps$Season, Engin = ps$ENGIN)
+  
+  
+# PS bycatch coordinates
+  
+  ps_megafauna <- points_megafauna %>%
+    filter(Engin == "PS - Filets tournants avec coulisse (sennes coulissantes)")
+  
+# Combined data
+  
+  ps_combined <- bind_rows(
+    mutate(points_gns, dataset = "PS Vessels"),
+    mutate(ps_megafauna, dataset = "Bycatch Species")
+  )
+  
+  
+# Map
+  
+  ggplot() +
+    geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill = "white", color = "black") +
+    coord_cartesian(xlim = c(-7, 2), ylim = c(48, 51))+  
+    geom_point(data = ps_combined, aes(x = lon, y = lat, color = Species, group = interaction(dataset, Season)), size = 2) +
+    facet_wrap(~Season) +
+    ggtitle("GNS vessels & associated bycatch")+
+    labs(fill = "Espèces", x = "Longitude", y = "Latitude")+
+  theme_light()
+
+
+
+
+```
