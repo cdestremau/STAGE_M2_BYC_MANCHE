@@ -5,7 +5,9 @@ format: html
 editor: visual
 ---
 
-## RF
+# RF
+
+## Data
 
 ```{r data }
 
@@ -381,6 +383,10 @@ gc()
 ```
 
 
+## RandomForest 
+
+### Data clean-up
+
 ```{r rf}
 library(data.table)
 library(randomForest)
@@ -495,26 +501,33 @@ fished_species2 <- fished_species2 %>%
 
 maree_caract <- pelagique_ptmbss %>%
   filter(!is.na(ESPF_COD)) %>%
+  filter(ESPF_COD != "DCO") %>%
   group_by(ID_MAREE) %>%
   summarise(n_especes = n_distinct(SPP_COD_FAO),
             av_mail = mean(as.numeric(MAILL), na.rm = TRUE),
             av_peche = mean(as.numeric(DUREE_OP)) / 1440,
             Longueur = unique(LONGUEUR),
             Bycatch = unique(Bycatch),
-            #av_speed = round(mean(as.numeric(GEAR_SPEED))),
+            av_speed = round(mean(as.numeric(GEAR_SPEED))),
             av_power = round(mean(as.numeric(PUISSANCE))),
             poids_tot = round(sum(as.numeric(POIDS_REF), na.rm = TRUE)),
             first_sp_fished = names(sort(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), decreasing = TRUE))[1],
             total_w_first_fished = max(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), na.rm = TRUE),
+            #Seasons = paste(Season, collapse = ", "),
+            #Months = paste(Month, collapse = ", "),
+            #Etat_mer = paste(ETAT_MER, collapse = ", "),
             #av_prof_fond = round(mean(as.numeric(PROF_FOND, na.rm = T))),
             #av_prof_engin = round(mean(as.numeric(PROF_ENGIN, na.rm = T))),
-            Season = unique(Season),
-            Month = unique(Month)) %>%
+            ) %>%
   left_join(fished_species2, by = "ID_MAREE")
 
-
 maree_summary <- left_join(sp_p_w, maree_caract, by = "ID_MAREE")
+
+
 maree_summary$n_especes <- as.numeric(maree_summary$n_especes)
+maree_summary$first_sp_fished <- as.factor(maree_summary$first_sp_fished)
+
+
 
 #check if bycatch obs have any na
 sum(is.na(maree_summary$Bycatch[maree_summary$Bycatch == 1]))
@@ -533,6 +546,15 @@ colSums(is.na(maree_summary))
 #re-check bycatch bc why not
 table(maree_summary$Bycatch)
 
+```
+
+
+### RF analysis
+
+```{r Randomforest}
+
+library(ROSE)
+
 
 # Adjust classwt = ()
 # is that wise? are there other ways to do this?
@@ -543,9 +565,172 @@ class_weights <- 1 / prop.table(class_freq)
 
 maree_summary$Bycatch <- as.factor(maree_summary$Bycatch)
 
-rf <- randomForest(Bycatch~., data = maree_summary, classwt = class_weights, ntree = 900, do.trace = 100, mtry= sqrt(ncol(maree_summary)))
-rf
 
+#maree_summary <- maree_summary %>% select (-Season, -Month)
+
+
+#### Mannocci et al (2021) used the following method : 
+
+## de ROSE package 
+# imbalance on training set
+  table(maree_summary$Bycatch)
+
+maree_summary$first_sp_fished <- as.factor(maree_summary$first_sp_fished)
+
+
+############### repeat model training 10 times 
+
+accuracies <- numeric(10)
+
+for (i in 1:10) {
+
+          #split the data
+          data_train <- maree_summary %>% sample_frac(0.75)  
+          
+          data_test <-  maree_summary %>% anti_join(data_train)
+          
+          # balanced data set with both over and under sampling
+          data.balanced.ou <- ovun.sample(Bycatch~., data=data_train,
+          N=nrow(data_train), p=0.3,
+          seed=1, method="both")$data
+          table(data.balanced.ou$Bycatch)
+          
+          #mon model : 
+          #rf <- randomForest(Bycatch~., data = data.balanced.ou, ntree = 3000, do.trace = 100)
+          #rf
+          
+          #add mtry = 15
+          rf2 <- randomForest(Bycatch~., data = data.balanced.ou, ntree = 3000)
+          #predictions <- predict(rf2, newdata = data_test)
+          
+          
+          ## Generate predictions
+          y_hats <- predict(
+                  
+                  ## Random forest object
+                  object=rf2, 
+                  
+                  ## Data to use for predictions; remove the Species
+                  newdata=data_test)
+          
+          
+          accuracies[i] <- accuracy
+
+}
+
+
+#################### k-fold cross validation
+
+#split the data
+          data_train <- maree_summary %>% sample_frac(0.75)  
+          
+          data_test <-  maree_summary %>% anti_join(data_train)
+          
+          # balanced data set with both over and under sampling
+          data.balanced.ou <- ovun.sample(Bycatch~., data=data_train,
+          N=nrow(data_train), p=0.3,
+          seed=1, method="both")$data
+          table(data.balanced.ou$Bycatch)
+          
+          #mon model : 
+          #rf <- randomForest(Bycatch~., data = data.balanced.ou, ntree = 3000, do.trace = 100)
+          #rf
+          
+          #add mtry = 15
+          #rf2 <- randomForest(Bycatch~., data = data.balanced.ou, ntree = 3000)
+          #rf2
+          #predictions <- predict(rf2, newdata = data_test)
+          
+          
+          
+          ###validating rf2 (balanced rf)
+          
+          ## Set seed for reproducibility
+          set.seed(123)
+          
+          ## Define repeated cross validation with 5 folds and three repeats
+          repeat_cv <- trainControl(method='repeatedcv', number=5, repeats=10)
+          
+          ## Train a random forest model
+          forest <- train(
+                  
+                  # Formula. We are using all variables to predict Species
+                  Bycatch~., 
+                  
+                  # Source of data; remove the Species variable
+                  data=data.balanced.ou, 
+                  
+                  # `rf` method for random forest
+                  method='rf', 
+                  
+                  # Add repeated cross validation as trControl
+                  trControl=repeat_cv,
+                  
+                  # Accuracy to measure the performance of the model
+                  metric='Accuracy')
+          
+          ## Print out the details about the model
+          forest$finalModel
+        
+          forest$resample
+          
+          
+y_hats <- predict( object=rf2, newdata=data_test)
+
+
+###########################################
+
+
+#split the data
+        data_train <- maree_summary %>% sample_frac(0.75)
+        data_test <-  maree_summary %>% anti_join(data_train)
+
+
+#1 - Balancing by voting rule, AUC of ROC will be unchanged...
+rare.class.prevalence = 0.05
+rf.cutoff = randomForest(Bycatch~.,data=maree_summary,cutoff=c(1-rare.class.prevalence,rare.class.prevalence), ntree = 1000, do.trace = 100)
+print(rf.cutoff)
+
+
+#2 - Balancing by sampling stratification ////// THIS TAKES FOREVER TO RUN? ///////
+nRareSamples = 10 * rare.class.prevalence
+rf.strata = randomForest(Bycatch~.,data=data_train,strata=data_train$Bycatch,
+                         sampsize=c(nRareSamples,nRareSamples))
+print(rf.strata)
+
+
+#3 - Balancing by class-weight during training.
+rf.classwt = randomForest(Bycatch~.,data=data_train,classwt=c(0.01,100))
+print(rf.classwt)
+
+
+
+#view OOB-CV specificity and sensitiviy
+plot(roc(rf.cutoff$votes[,2],data_train$Bycatch),main="black default, red stata, green classwt")
+plot(roc(rf.strata$votes[,2],data_train$Bycatch),col=2,add=T)
+plot(roc(rf.classwt$votes[,2],data_train$Bycatch),col=3,add=T)
+
+
+
+
+
+
+#### modify sampsize and classwt
+
+rf3 <- randomForest(Bycatch ~., data = maree_summary, ntree = 3000, do.trace = 100, sampsize = c(50,10), classwt = c(7,93))
+rf3
+
+
+
+#### try regularized random forest RRF
+
+rrf <- RRF(Bycatch ~. , data = maree_summary, ntree = 10000, do.trace = 100, coefReg = 0.95, sampsize = c(15,10), mtry = 20)
+rrf
+
+
+
+
+#### mtry 
 
 #grabbed this from a tuto but idk 
 
@@ -556,6 +741,8 @@ metric <- "Accuracy"
 mtry <- sqrt(ncol(maree_summary))
 rf_random <- train(Bycatch~., data=maree_summary, method="rf", metric=metric, tuneLength=15, trControl=control)
 print(rf_random)
+
+
 
 
 
