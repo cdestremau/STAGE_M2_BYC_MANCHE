@@ -382,8 +382,7 @@ gc()
 
 ```
 
-
-## RandomForest 
+## Analyses
 
 ### Data clean-up
 
@@ -398,6 +397,7 @@ data <- BYC[!duplicated(ID_CAPTURE),]
 data %>%
   select(ID_LOT, ZONE,DCR_FLOTTILLE_LIB, METIER1, ORDER_COD_FAO,FAMILY_COD_FAO,SPP_COD_FAO, MAILL, LONGUEUR, DUREE_OP, POIDS_REF, PUISSANCE, EFFORT, ID_OP, ID_CAPTURE, ID_MAREE, ZONE, GEAR_SPEED, ETAT_MER, NOMBRE,ESPF_COD, PROF_ENGIN, Season, Month, PROF_FOND)
 
+#data <- data %>% filter (ZONE == "27.7.e")
 
 data <- data %>% 
   group_by(ID_MAREE) %>%
@@ -407,6 +407,13 @@ data <- data %>%
 
 #adjust here flottille (& métier)
 pelagique_ptmbss <- data %>% filter (DCR_FLOTTILLE_LIB == "Chalutiers pélagiques")
+
+
+
+#Fileyeurs : 1800 - 0, 7 - 1 (bycatch)
+#Chalutiers de fond : 1408 -0, 5 - 1
+#chalutiers pélagiques : 161 - 0, 11- 1 
+
 
 colSums(is.na(pelagique_ptmbss))
 
@@ -485,6 +492,9 @@ fished_species <- species_weight %>%
 
 
 
+
+
+
 # join second_sp_fished & associated weight 
 fished_species2 <- fished_species %>%
   left_join(species_weight, by = c("ID_MAREE" = "ID_MAREE", "second_sp_fished" = "ESPF_COD")) %>%
@@ -494,6 +504,13 @@ fished_species2 <- fished_species %>%
 fished_species2 <- fished_species2 %>%
   left_join(species_weight, by = c("ID_MAREE" = "ID_MAREE", "third_sp_fished" = "ESPF_COD")) %>%
   rename(third_sp_w = sp_weight)
+
+#w <-  pelagique_ptmbss %>%
+#  filter(!is.na(ESPF_COD)) %>%
+#  filter(ESPF_COD != "DCO") %>%
+#  group_by(ID_MAREE, Month) %>%           
+#  summarise(poids_tot = round(sum(as.numeric(POIDS_REF), na.rm = TRUE))) %>%
+#  left_join(fished_species2,by = "ID_MAREE")
 
 
 
@@ -511,9 +528,12 @@ maree_caract <- pelagique_ptmbss %>%
             av_speed = round(mean(as.numeric(GEAR_SPEED))),
             av_power = round(mean(as.numeric(PUISSANCE))),
             poids_tot = round(sum(as.numeric(POIDS_REF), na.rm = TRUE)),
-            first_sp_fished = names(sort(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), decreasing = TRUE))[1],
+            #first_sp_fished = names(sort(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), decreasing = TRUE))[1],
             total_w_first_fished = max(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), na.rm = TRUE),
-            #Seasons = paste(Season, collapse = ", "),
+            #stat_rectangle = names(sort(tapply(POIDS_REF, RECTANGLE, sum, na.rm = TRUE), decreasing = TRUE))[1],
+            #month = names(sort(tapply(POIDS_REF, Month, sum, na.rm = TRUE), decreasing = TRUE))[1],
+            first_fam_fished = names(sort(tapply(POIDS_REF, FAMILY_COD_FAO, sum, na.rm = TRUE), decreasing = TRUE))[1],
+            #total_w_fam_fished = max(tapply(POIDS_REF, FAMILY_COD_FAO, sum, na.rm = TRUE), na.rm = TRUE),
             #Months = paste(Month, collapse = ", "),
             #Etat_mer = paste(ETAT_MER, collapse = ", "),
             #av_prof_fond = round(mean(as.numeric(PROF_FOND, na.rm = T))),
@@ -525,7 +545,8 @@ maree_summary <- left_join(sp_p_w, maree_caract, by = "ID_MAREE")
 
 
 maree_summary$n_especes <- as.numeric(maree_summary$n_especes)
-maree_summary$first_sp_fished <- as.factor(maree_summary$first_sp_fished)
+#maree_summary$first_sp_fished <- as.factor(maree_summary$first_sp_fished)
+#maree_summary$first_fam_fished <- as.factor(maree_summary$first_fam_fished)
 
 
 
@@ -546,8 +567,152 @@ colSums(is.na(maree_summary))
 #re-check bycatch bc why not
 table(maree_summary$Bycatch)
 
+
+maree_summary$Longueur <- as.numeric(maree_summary$Longueur)
+maree_summary$first_fam_fished <- as.factor(maree_summary$first_fam_fished)
+maree_summary$Bycatch <- as.factor(maree_summary$Bycatch)
+
+
+
 ```
 
+
+### famd
+
+```{r Multivariate analysis}
+
+library(FactoMineR)
+library(factoextra)
+
+maree_summary <- maree_summary %>% select(-Bycatch)
+
+famd_byc <- FAMD(maree_summary, graph = T, ncp = 12)
+
+
+### proportion of variances retained by the different dimensions (axes) 
+
+eig.val <- get_eigenvalue(famd_byc)
+head(eig.val)
+
+#scree plot
+fviz_screeplot(famd_byc)
+
+
+### graph of all variables 
+
+var <- get_famd_var(famd_byc)
+var
+
+
+# Coordinates of variables
+head(var$coord)
+# Cos2: quality of representation on the factore map
+head(var$cos2)
+# Contributions to the  dimensions
+head(var$contrib)
+
+
+
+# Plot of all variables
+fviz_famd_var(famd_byc, repel = TRUE)
+# Contribution to the first dimension
+fviz_contrib(famd_byc, "var", axes = 1)
+# Contribution to the second dimension
+fviz_contrib(famd_byc, "var", axes = 2)
+
+
+
+### quantitative variables
+
+# correlation 
+quanti.var <- get_famd_var(famd_byc, "quanti.var")
+quanti.var 
+fviz_famd_var(famd_byc, "quanti.var", repel = TRUE,
+              col.var = "black")
+
+
+# highlight contribution
+fviz_famd_var(famd_byc, "quanti.var", col.var = "contrib", 
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+
+
+
+# Color by cos2 values: quality on the factor map
+fviz_famd_var(famd_byc, "quanti.var", col.var = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+             repel = TRUE)
+
+
+### qualitative variables
+
+quali.var <- get_famd_var(famd_byc, "quali.var")
+quali.var 
+
+fviz_famd_var(famd_byc, "quali.var", col.var = "contrib", 
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             )
+
+
+### graph of individuals 
+
+fviz_famd_ind(famd_byc, col.ind = "cos2", 
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = F)
+fviz_mfa_ind(famd_byc, 
+             habillage = "Bycatch", # color by groups 
+             addEllipses = TRUE, ellipse.type = "confidence", 
+             repel = F # Avoid text overlapping
+             ) 
+
+fviz_mfa_ind(famd_byc, 
+             habillage = "Bycatch", # color by groups 
+             addEllipses = T,
+             ) 
+
+
+
+
+fviz_ellipses(famd_byc, c("Bycatch", "first_fam_fished"), repel = F, geom = "point")
+
+
+
+
+##########
+
+
+## Hierachical clustering
+res.hcpc <- HCPC(famd_byc, consol = F, method = "complete", metric = "euclidian")
+
+## Plot
+fviz_cluster(res.hcpc, geom = "point")
+
+
+## Graphical interface
+#require(Factoshiny)
+#res <- Factoshiny(maree_summary[,1:27])
+
+
+
+###########
+
+library(plotly)
+
+## Concate original data with coordinates for 
+## the first three principal dimensions
+val_df <- as.data.frame(famd_byc$ind)
+
+x <- cbind(maree_summary, val_df[1:3])
+
+## Plot
+plot_ly(x, 
+        x = ~coord.Dim.1, 
+        y = ~coord.Dim.2, 
+        z = ~coord.Dim.3, 
+        color = ~Bycatch)
+
+
+```
 
 ### RF analysis
 
@@ -576,16 +741,17 @@ maree_summary$Bycatch <- as.factor(maree_summary$Bycatch)
   table(maree_summary$Bycatch)
 
 maree_summary$first_sp_fished <- as.factor(maree_summary$first_sp_fished)
+maree_summary$first_fam_fished <- as.factor(maree_summary$first_fam_fished)
 
 
 ############### repeat model training 10 times 
 
-accuracies <- numeric(10)
+accuracies <- list(numeric(10))
 
 for (i in 1:10) {
 
           #split the data
-          data_train <- maree_summary %>% sample_frac(0.75)  
+          data_train <- maree_summary %>% sample_frac(0.5)  
           
           data_test <-  maree_summary %>% anti_join(data_train)
           
@@ -614,7 +780,8 @@ for (i in 1:10) {
                   newdata=data_test)
           
           
-          accuracies[i] <- accuracy
+          #accuracies[i] <- 
+            table(data_test$Bycatch, y_hats)
 
 }
 
@@ -622,15 +789,16 @@ for (i in 1:10) {
 #################### k-fold cross validation
 
 #split the data
-          data_train <- maree_summary %>% sample_frac(0.75)  
-          
-          data_test <-  maree_summary %>% anti_join(data_train)
           
           # balanced data set with both over and under sampling
-          data.balanced.ou <- ovun.sample(Bycatch~., data=data_train,
-          N=nrow(data_train), p=0.3,
+          data.balanced.ou <- ovun.sample(Bycatch~., data=maree_summary,
+          N=nrow(maree_summary), p=0.3,
           seed=1, method="both")$data
           table(data.balanced.ou$Bycatch)
+          
+          data_train <- data.balanced.ou %>% sample_frac(0.75)  
+          
+          data_test <-  data.balanced.ou %>% anti_join(data_train)
           
           #mon model : 
           #rf <- randomForest(Bycatch~., data = data.balanced.ou, ntree = 3000, do.trace = 100)
@@ -640,9 +808,6 @@ for (i in 1:10) {
           #rf2 <- randomForest(Bycatch~., data = data.balanced.ou, ntree = 3000)
           #rf2
           #predictions <- predict(rf2, newdata = data_test)
-          
-          
-          
           ###validating rf2 (balanced rf)
           
           ## Set seed for reproducibility
@@ -658,7 +823,7 @@ for (i in 1:10) {
                   Bycatch~., 
                   
                   # Source of data; remove the Species variable
-                  data=data.balanced.ou, 
+                  data=data_train, 
                   
                   # `rf` method for random forest
                   method='rf', 
@@ -675,63 +840,93 @@ for (i in 1:10) {
           forest$resample
           
           
-y_hats <- predict( object=rf2, newdata=data_test)
+y_hats <- predict(object=rf2, newdata=data_test)
 
+table(data_test$Bycatch, y_hats)
 
 ###########################################
 
 
 #split the data
-        data_train <- maree_summary %>% sample_frac(0.75)
+        data_train <- maree_summary %>% sample_frac(0.8)
         data_test <-  maree_summary %>% anti_join(data_train)
 
 
 #1 - Balancing by voting rule, AUC of ROC will be unchanged...
-rare.class.prevalence = 0.05
-rf.cutoff = randomForest(Bycatch~.,data=maree_summary,cutoff=c(1-rare.class.prevalence,rare.class.prevalence), ntree = 1000, do.trace = 100)
+
+        
+rare.class.prevalence = 0.06
+rf.cutoff = randomForest(Bycatch~.,data=maree_summary,cutoff=c(1-rare.class.prevalence,rare.class.prevalence), ntree = 3000, do.trace = 100, proximity = T)
 print(rf.cutoff)
+
+# talk about mannocci et al 
+# results we have are p good ?
+# predict on sacrois? 
+# write (add mds, partial plots?)
+
+# try on fileyeur (et chalut de fond?)
+# try at fishing op scale?
+# stay at flottille level and not +metier
+
+# lundi 10h- 12
+# puree fini mat et met
+# analyse multivariées et run RF en parallele 
+
+MDSplot(rf.strata, maree_summary$Bycatch, k=3, palette = palette.colors(n=2))
+
+partialPlot(rf.strata, as.data.frame(maree_summary), which.class = 1, n_especes, cex.name = 0.7)
+
+
+y_hats <- predict(object=rf.cutoff, newdata=data_test)
+
+table(data_test$Bycatch, y_hats)
+
+
+rf3 <- randomForest(Bycatch ~., data = maree_summary, ntree = 3000, do.trace = 100)
+rf3
+
 
 
 #2 - Balancing by sampling stratification ////// THIS TAKES FOREVER TO RUN? ///////
 nRareSamples = 10 * rare.class.prevalence
-rf.strata = randomForest(Bycatch~.,data=data_train,strata=data_train$Bycatch,
-                         sampsize=c(nRareSamples,nRareSamples))
-print(rf.strata)
 
+
+maree_rf <- maree_summary %>% select ()
+
+
+
+rf.strata = randomForest(Bycatch~.,data=maree_summary,
+                         sampsize=c(22,11), proximity = T, keep.forest = T, importance = T)
+print(rf.strata)
+varImpPlot(rf.strata)
 
 #3 - Balancing by class-weight during training.
-rf.classwt = randomForest(Bycatch~.,data=data_train,classwt=c(0.01,100))
+rf.classwt = randomForest(Bycatch~.,data=maree_summary,classwt=c(0.01,100), mtry = 1)
 print(rf.classwt)
 
 
 
 #view OOB-CV specificity and sensitiviy
 plot(roc(rf.cutoff$votes[,2],data_train$Bycatch),main="black default, red stata, green classwt")
-plot(roc(rf.strata$votes[,2],data_train$Bycatch),col=2,add=T)
-plot(roc(rf.classwt$votes[,2],data_train$Bycatch),col=3,add=T)
-
-
+#plot(roc(rf.strata$votes[,2],data_train$Bycatch),col=2,add=T)
+#plot(roc(rf.classwt$votes[,2],data_train$Bycatch),col=3,add=T)
 
 
 
 
 #### modify sampsize and classwt
 
+
+rf4 <- randomForest(Bycatch ~., data = maree_summary, ntree = 3000, do.trace = 100)
+rf4
+
+
 rf3 <- randomForest(Bycatch ~., data = maree_summary, ntree = 3000, do.trace = 100, sampsize = c(50,10), classwt = c(7,93))
 rf3
 
 
-
-#### try regularized random forest RRF
-
-rrf <- RRF(Bycatch ~. , data = maree_summary, ntree = 10000, do.trace = 100, coefReg = 0.95, sampsize = c(15,10), mtry = 20)
-rrf
-
-
-
-
 #### mtry 
-
+library(caret)
 #grabbed this from a tuto but idk 
 
 # Random search
@@ -744,9 +939,14 @@ print(rf_random)
 
 
 
+# Grid search
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+set.seed(123)
+tunegrid <- expand.grid(.mtry=c(1:25))
+rf_gridsearch <- train(Bycatch~., data= maree_summary, method="rf", metric=metric, tuneGrid=tunegrid, trControl=control)
+print(rf_gridsearch)
+plot(rf_gridsearch)
 
 
 
 ```
-
-
