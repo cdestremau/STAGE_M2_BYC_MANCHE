@@ -408,6 +408,7 @@ data <- data %>%
 #adjust here flottille (& métier)
 pelagique_ptmbss <- data %>% filter (DCR_FLOTTILLE_LIB == "Chalutiers pélagiques")
 
+#sS__flottille pr marsouins : Chalutiers de fond exclusifs, Fileyeurs exclusifs
 
 
 #Fileyeurs : 1800 - 0, 7 - 1 (bycatch)
@@ -430,7 +431,7 @@ pelagique_ptmbss <- pelagique_ptmbss %>%
   mutate(Bycatch = if_else(any(SPP_COD_FAO == "Delphinus delphis"), 1, 0, missing = 0))
 
 colSums(is.na(pelagique_ptmbss))
-
+table(pelagique_ptmbss$Bycatch)
 
 #pelagique_ptmbss <- pelagique_ptmbss %>% filter(Bycatch == 1)
 
@@ -438,6 +439,9 @@ colSums(is.na(pelagique_ptmbss))
 #    Bycatch = (if_else(SPP_COD_FAO == "Delphinus delphis", 1, 0)),
 
 # Remove obs or columns if too many NAs
+
+# DCO for dolphins
+# PHR for marsouins
 
 # summary of sp fished of interest
 sp_p_w <- pelagique_ptmbss %>%
@@ -461,9 +465,13 @@ sp_p_w <- pelagique_ptmbss %>%
     Anchois_p = sum(if_else(SPP_COD_FAO == "Engraulis spp", POIDS_REF, 0),na.rm = T) / Poids_tot_MAREE,
     Sardine_weight = sum(if_else(SPP_COD_FAO == "Sardina pilchardus", POIDS_REF, 0),na.rm = T),
     Sardine_p = sum(if_else(SPP_COD_FAO == "Sardina pilchardus", POIDS_REF, 0),na.rm = T) / Poids_tot_MAREE,
+    Hareng_weight = sum(if_else(SPP_COD_FAO == "Clupea harengus", POIDS_REF, 0),na.rm = T),
+    #Hareng_p = sum(if_else(SPP_COD_FAO == "Clupea harengus", POIDS_REF, 0),na.rm = T) / Poids_tot_MAREE,
+    
     
   )%>%
   distinct(ID_MAREE, .keep_all = TRUE)
+
 
 
 #check na
@@ -491,7 +499,7 @@ fished_species <- species_weight %>%
             .groups = "drop")
 
 
-
+"#67A9CF"
 
 
 
@@ -525,20 +533,21 @@ maree_caract <- pelagique_ptmbss %>%
             av_peche = mean(as.numeric(DUREE_OP)) / 1440,
             Longueur = unique(LONGUEUR),
             Bycatch = unique(Bycatch),
-            av_speed = round(mean(as.numeric(GEAR_SPEED))),
-            av_power = round(mean(as.numeric(PUISSANCE))),
+            av_vitesse = round(mean(as.numeric(GEAR_SPEED))),
+            av_puissance = round(mean(as.numeric(PUISSANCE))),
             poids_tot = round(sum(as.numeric(POIDS_REF), na.rm = TRUE)),
             #first_sp_fished = names(sort(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), decreasing = TRUE))[1],
-            total_w_first_fished = max(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), na.rm = TRUE),
+            poids_total_sp_plus_peche = max(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), na.rm = TRUE),
             #stat_rectangle = names(sort(tapply(POIDS_REF, RECTANGLE, sum, na.rm = TRUE), decreasing = TRUE))[1],
             #month = names(sort(tapply(POIDS_REF, Month, sum, na.rm = TRUE), decreasing = TRUE))[1],
-            first_fam_fished = names(sort(tapply(POIDS_REF, FAMILY_COD_FAO, sum, na.rm = TRUE), decreasing = TRUE))[1],
+            fam_plus_peche = names(sort(tapply(POIDS_REF, FAMILY_COD_FAO, sum, na.rm = TRUE), decreasing = TRUE))[1],
             #total_w_fam_fished = max(tapply(POIDS_REF, FAMILY_COD_FAO, sum, na.rm = TRUE), na.rm = TRUE),
             #Months = paste(Month, collapse = ", "),
             #Etat_mer = paste(ETAT_MER, collapse = ", "),
             #av_prof_fond = round(mean(as.numeric(PROF_FOND, na.rm = T))),
             #av_prof_engin = round(mean(as.numeric(PROF_ENGIN, na.rm = T))),
             ) %>%
+  ungroup() %>%
   left_join(fished_species2, by = "ID_MAREE")
 
 maree_summary <- left_join(sp_p_w, maree_caract, by = "ID_MAREE")
@@ -554,7 +563,7 @@ maree_summary$n_especes <- as.numeric(maree_summary$n_especes)
 sum(is.na(maree_summary$Bycatch[maree_summary$Bycatch == 1]))
 
 #get rid of unecessary data :))
-maree_summary <- maree_summary %>% select (-second_sp_fished, -third_sp_fished, -second_sp_w, -third_sp_w, -ID_MAREE)
+maree_summary <- maree_summary %>% select (-second_sp_fished, -third_sp_fished, -second_sp_w, -third_sp_w, -ID_MAREE, -Trachurus_weight, -Gadidae_weight, -Scomber_weight, -Merluccius_weight, -Dicentrarchus_weight, -Sprat_weight, -Anchois_weight, -Sardine_weight, -Hareng_weight)
 
 #check bycatch
 table(maree_summary$Bycatch)
@@ -569,9 +578,12 @@ table(maree_summary$Bycatch)
 
 
 maree_summary$Longueur <- as.numeric(maree_summary$Longueur)
-maree_summary$first_fam_fished <- as.factor(maree_summary$first_fam_fished)
+#maree_summary$sp_plus_peche <- as.factor(maree_summary$sp_plus_peche)
+maree_summary$fam_plus_peche <- as.factor(maree_summary$fam_plus_peche)
+
 maree_summary$Bycatch <- as.factor(maree_summary$Bycatch)
 
+colSums(is.na(maree_summary))
 
 
 ```
@@ -584,10 +596,9 @@ maree_summary$Bycatch <- as.factor(maree_summary$Bycatch)
 library(FactoMineR)
 library(factoextra)
 
-maree_summary <- maree_summary %>% select(-Bycatch)
+#maree_summary1 <- maree_summary %>% select(-Bycatch)
 
-famd_byc <- FAMD(maree_summary, graph = T, ncp = 12)
-
+famd_byc <- FAMD(maree_summary[,-13], graph = T, ncp = 25)
 
 ### proportion of variances retained by the different dimensions (axes) 
 
@@ -627,8 +638,22 @@ fviz_contrib(famd_byc, "var", axes = 2)
 # correlation 
 quanti.var <- get_famd_var(famd_byc, "quanti.var")
 quanti.var 
-fviz_famd_var(famd_byc, "quanti.var", repel = TRUE,
-              col.var = "black")
+famd_var <- fviz_famd_var(famd_byc, "quanti.var", repel = TRUE,
+              col.var = "black", axes = c(1,2) , ggtitle(""))
+
+
+
+famd_var <- fviz_famd_var(famd_byc, "quanti.var", repel = TRUE,
+                          col.var = "black", axes = c(1, 2)) +
+            ggtitle("") +
+            theme(plot.title = element_text(hjust = 0.5) +theme(
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+  ) )
+
+
+ggsave("famd_var_plot.png", plot = famd_var, width = 5000, height = 5000, units = "px", bg = "white", dpi = 1000)
+
 
 
 # highlight contribution
@@ -639,9 +664,10 @@ fviz_famd_var(famd_byc, "quanti.var", col.var = "contrib",
 
 
 # Color by cos2 values: quality on the factor map
-fviz_famd_var(famd_byc, "quanti.var", col.var = "cos2",
-             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+fviz_famd_var(famd_byc, "quanti.var", 
              repel = TRUE)
+
+
 
 
 ### qualitative variables
@@ -654,44 +680,95 @@ fviz_famd_var(famd_byc, "quali.var", col.var = "contrib",
              )
 
 
+famd_quali_plot <- fviz_famd_var(famd_byc, "quali.var", col.var = "black")
+
+
+
+ggsave("famd_quali_plot.png", plot = famd_quali_plot, width = 5500, height = 5000, units = "px", bg = "white", dpi = 600)
+
+
 ### graph of individuals 
 
-fviz_famd_ind(famd_byc, col.ind = "cos2", 
-             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+fviz_famd_ind(famd_byc,
              repel = F)
-fviz_mfa_ind(famd_byc, 
-             habillage = "Bycatch", # color by groups 
-             addEllipses = TRUE, ellipse.type = "confidence", 
-             repel = F # Avoid text overlapping
-             ) 
+famd_ind_plot <- fviz_famd_ind(famd_byc, repel = FALSE, geom = "point", col.ind = "black") + theme_minimal() + ggtitle ("")
 
-fviz_mfa_ind(famd_byc, 
-             habillage = "Bycatch", # color by groups 
-             addEllipses = T,
-             ) 
+ggsave("famd_ind_plot", plot = famd_ind_plot, width = 4000, height = 4000, units = "px", bg = "white", dpi = 600)
 
 
+#fviz_mfa_ind(famd_byc, 
+ #            habillage = "Bycatch", # color by groups 
+#             addEllipses = TRUE, ellipse.type = "confidence", 
+#             repel = F # Avoid text overlapping
+#             ) 
+
+#fviz_mfa_ind(famd_byc, 
+#             habillage = "Bycatch", # color by groups 
+#             addEllipses = T,
+#             ) 
 
 
-fviz_ellipses(famd_byc, c("Bycatch", "first_fam_fished"), repel = F, geom = "point")
+
+
+#fviz_ellipses(famd_byc, c("Bycatch", "first_fam_fished"), repel = F, geom = "point")
 
 
 
 
-##########
+library("NbClust")
 
+
+#data_byc <- maree_summary %>% select (-Bycatch, -first_fam_fished)
+#data_byc <- data.frame(data_byc)
+
+res <- NbClust(as.data.frame(famd_byc$ind$coord), diss=NULL, distance = "euclidean", min.nc=2, max.nc=12, method = "complete", index = "ch")
 
 ## Hierachical clustering
-res.hcpc <- HCPC(famd_byc, consol = F, method = "complete", metric = "euclidian")
+res.hcpc <- HCPC(famd_byc,consol = T, method = "complete", metric = "euclidian", nb.clust = 12)
+cluster <- fviz_cluster(res.hcpc, geom = "point", ggtheme = theme_bw() +
+  labs(title = NULL))
+
+
+pipo <- cbind(res.hcpc$data.clust, maree_summary$Bycatch)
+
+table(pipo$clust, pipo$`maree_summary$Bycatch`)
+
+res.hcpc$desc.var$quanti
 
 ## Plot
-fviz_cluster(res.hcpc, geom = "point")
+cluster <- fviz_cluster(res.hcpc, geom = "point", axes = c(1,2)) +ggtitle(label='') +
+  theme(
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+  )
+
+clust1 <- as.data.frame(res.hcpc$desc.var$quanti$"1")
+clust1_qual <- as.data.frame(res.hcpc$desc.var$category$"1")
 
 
-## Graphical interface
-#require(Factoshiny)
-#res <- Factoshiny(maree_summary[,1:27])
 
+clust2 <-  as.data.frame(res.hcpc$desc.var$quanti$"2")
+clust2_qual <- as.data.frame(res.hcpc$desc.var$category$"2")
+
+
+clust1_qual[] <- lapply(clust1_qual, function(x) if(is.numeric(x)) round(x, 2) else x)
+
+clust2_qual[] <- lapply(clust2_qual, function(x) if(is.numeric(x)) round(x, 2) else x)
+
+
+clust1[] <- lapply(clust1, function(x) if(is.numeric(x)) round(x, 2) else x)
+
+clust2[] <- lapply(clust2, function(x) if(is.numeric(x)) round(x, 2) else x)
+
+
+names(pipo)[which(names(pipo) == "maree_summary$Bycatch")] <- "Bycatch"
+
+
+ggsave("cluster.png", plot = cluster, width = 5000, height = 6000, units = "px", bg = "white", dpi = 600)
+
+
+
+#maree_summary[, c(-21, -26)]
 
 
 ###########
@@ -700,7 +777,7 @@ library(plotly)
 
 ## Concate original data with coordinates for 
 ## the first three principal dimensions
-val_df <- as.data.frame(famd_byc$ind)
+val_df <- as.data.frame(res.pca$ind)
 
 x <- cbind(maree_summary, val_df[1:3])
 
@@ -719,7 +796,7 @@ plot_ly(x,
 ```{r Randomforest}
 
 library(ROSE)
-
+library(randomForest)
 
 # Adjust classwt = ()
 # is that wise? are there other ways to do this?
@@ -874,7 +951,27 @@ print(rf.cutoff)
 
 MDSplot(rf.strata, maree_summary$Bycatch, k=3, palette = palette.colors(n=2))
 
-partialPlot(rf.strata, as.data.frame(maree_summary), which.class = 1, n_especes, cex.name = 0.7)
+
+par(mfrow = c(2, 3))
+
+longueur <- partialPlot(rf.strata, as.data.frame(maree_summary), which.class = 1, Longueur, cex.name = 0.9)
+
+puissance <- partialPlot(rf.strata, as.data.frame(maree_summary), which.class = 1, av_puissance, cex.name = 0.9)
+  
+vitesse <- partialPlot(rf.strata, as.data.frame(maree_summary), which.class = 1, av_vitesse, cex.name = 0.9)
+
+fam <- partialPlot(rf.strata, as.data.frame(maree_summary), which.class = 1, fam_plus_peche, cex.name = 0.9)
+
+gadide <- partialPlot(rf.strata, as.data.frame(maree_summary), which.class = 1, Gadidae_p, cex.name = 0.9)
+
+bar <- partialPlot(rf.strata, as.data.frame(maree_summary), which.class = 1, Dicentrarchus_p, cex.name = 0.9)
+
+
+  
+
+
+
+
 
 
 y_hats <- predict(object=rf.cutoff, newdata=data_test)
@@ -882,7 +979,7 @@ y_hats <- predict(object=rf.cutoff, newdata=data_test)
 table(data_test$Bycatch, y_hats)
 
 
-rf3 <- randomForest(Bycatch ~., data = maree_summary, ntree = 3000, do.trace = 100)
+rf3 <- randomForest(Bycatch ~., data = maree_rf, ntree = 3000, do.trace = 100)
 rf3
 
 
@@ -891,14 +988,71 @@ rf3
 nRareSamples = 10 * rare.class.prevalence
 
 
-maree_rf <- maree_summary %>% select ()
+maree_rf <- pipo %>% filter (clust %in% c(1,2)) %>% select (-clust)
+
+#maree_rf$Bycatch <- maree_rf$`maree_summary$Bycatch`
+
+maree_rf %>% select (-maree_summary$Bycatch)
 
 
+maree_rf2 <- maree_rf %>% select (Dicentrarchus_p, av_mail, av_peche, av_vitesse, Gadidae_p, av_puissance, Trachurus_p, n_especes, Scomber_p, poids_tot, poids_total_sp_plus_peche, Bycatch, fam_plus_peche)
 
-rf.strata = randomForest(Bycatch~.,data=maree_summary,
-                         sampsize=c(22,11), proximity = T, keep.forest = T, importance = T)
+## for the random forest, i keep clust 1 and 2, but do i also keep the variables that were most significant?
+
+
+rf.strata = randomForest(Bycatch~.,data=maree_summary, sampsize=c(22,11), proximity = T, keep.forest = T, importance = T, ntree = 1000, do.trace = 100, mtry = 2)
+
 print(rf.strata)
+
 varImpPlot(rf.strata)
+
+conf_matrix <- as.data.frame(rf.strata$confusion)
+
+imp <- importance(rf.strata)
+
+impvar <- rownames(imp)[order(imp[, 1], decreasing=TRUE)]
+op <- par(mfrow=c(2, 3))
+for (i in seq_along(impvar)) {
+    partialPlot(rf.strata, maree_summary, impvar[i], xlab=impvar[i],
+                main=paste("Partial Dependence on", impvar[i]),
+                ylim=c(30, 70))
+}
+par(op)
+
+
+
+# Extract importance values (Mean Decrease in Accuracy)
+importance_values <- importance(rf.strata, type = 1)  # Type 1 corresponds to Mean Decrease in Accuracy
+
+# Convert to data frame and order by importance
+importance_df <- data.frame(Variable = rownames(importance_values), 
+                            MeanDecreaseAccuracy = importance_values[, "MeanDecreaseAccuracy"])
+importance_df <- importance_df[order(importance_df$MeanDecreaseAccuracy, decreasing = TRUE), ]
+
+# Plot the variable importance
+var_imp_plot <- ggplot(importance_df, aes(x = reorder(Variable, MeanDecreaseAccuracy), 
+                          y = MeanDecreaseAccuracy)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip coordinates for better readability
+  xlab("Variable") + 
+  ylab("Mean Decrease in Accuracy") +
+  ggtitle("Variable Importance (Mean Decrease in Accuracy)") +
+  theme_classic()
+
+
+
+ggsave("var_imp-plot.png", plot = var_imp_plot, width = 5000, height = 6000, units = "px", bg = "white", dpi = 600)
+
+
+
+
+
+
+
+
+
+
+
 
 #3 - Balancing by class-weight during training.
 rf.classwt = randomForest(Bycatch~.,data=maree_summary,classwt=c(0.01,100), mtry = 1)
@@ -942,7 +1096,7 @@ print(rf_random)
 # Grid search
 control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
 set.seed(123)
-tunegrid <- expand.grid(.mtry=c(1:25))
+tunegrid <- expand.grid(.mtry=c(1:17))
 rf_gridsearch <- train(Bycatch~., data= maree_summary, method="rf", metric=metric, tuneGrid=tunegrid, trControl=control)
 print(rf_gridsearch)
 plot(rf_gridsearch)
