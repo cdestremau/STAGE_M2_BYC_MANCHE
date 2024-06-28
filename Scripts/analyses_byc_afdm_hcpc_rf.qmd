@@ -1,0 +1,645 @@
+---
+title: "analyses_afdm_hcpc_rf"
+author: "CMD"
+format: html
+editor: visual
+---
+
+## Multivariate analyses of dolphin bycatch data in the english channel
+
+## Data loading
+
+
+```{r loading data}
+
+
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(lubridate)
+library(caTools)
+library(randomForest)
+library(caret)
+
+
+###################### FREE2_OBSMER_serie ###################### 
+
+# Set working directory
+setwd("~/Data/data_obsmer/FREE2_OBSMER_serie")
+
+# Load FREE2_OBSMER data
+
+## CAPTURES
+BYC<-read.csv2("CAPTURES.csv", fileEncoding="ISO-8859-3")
+setDT(BYC)
+
+
+## STRATEGIES
+strat<-read.csv2("STRATEGIE.csv", fileEncoding="ISO-8859-3")
+setDT(strat)
+
+
+BYC=merge(BYC, strat[,.(ID_VRAC,ID_OP)], by="ID_VRAC", all.x = T, all.y=F)
+
+
+## OPERATION
+operation<-read.csv2("OPERATION_PECHE.csv", fileEncoding="ISO-8859-3")
+setDT(operation)
+operation <- subset(operation, select = c(ID_OP, DATE_FIN, DUREE_OP, RECTANGLE, 
+                                          PROF_FOND, PROF_ENGIN, ID_MAREE,ENGIN, METIER1, 
+                                          LONG_DEB_OP,LAT_DEB_OP, LONG_FIN_OP, LAT_FIN_OP, 
+                                          ESPECE_CIBLE, MAILL, EFFORT,ZONE, ETAT_MER,
+                                          DISPO_REPULS,DISPO_REPULS1,GEAR_SPEED))
+setDT(operation)
+
+BYC=merge(BYC, operation[,.(DATE_FIN, DUREE_OP, RECTANGLE, PROF_FOND, PROF_ENGIN, 
+                            ID_MAREE,ENGIN, METIER1, LONG_DEB_OP,LAT_DEB_OP, LONG_FIN_OP,
+                            LAT_FIN_OP, ESPECE_CIBLE, MAILL, EFFORT, ID_OP,ZONE,ETAT_MER,
+                                          DISPO_REPULS,DISPO_REPULS1,GEAR_SPEED)], by="ID_OP", all.x = T, all.y=F)
+
+
+
+### Region
+BYC <- BYC %>% filter(ZONE %in% c("27.7.e", "27.7.d") | 
+                        (ZONE == "27.7.h" & RECTANGLE %in% c("27E3","27E4","26E4","26E3","25E3","25E4")))
+
+
+
+## MAREE
+maree<-read.csv2("MAREE.csv", fileEncoding="ISO-8859-3")
+setDT(maree)
+
+
+BYC=merge(BYC, maree[,.(ID_MAREE, ID_NAVIRE,LONGUEUR, PUISSANCE)], by="ID_MAREE", all.x = T, all.y=F)
+
+
+
+## MESURES
+mesures<-read.csv2("MESURES.csv", fileEncoding="ISO-8859-3")
+setDT(mesures)
+
+BYC=merge(BYC, mesures[,.(ID_CAPTURE, POIDS_REF, CRITERE, VALEUR, UNITE, NOMBRE)], by="ID_CAPTURE", all.x = T, all.y=F)
+
+BYC <- BYC %>% mutate(POIDS_REF = coalesce(POIDS_REF.x, WEIGHT_RTP))
+
+
+### Unique vessel ID
+BYC[, NAVS_COD_YEAR := paste(ID_NAVIRE, substr(DATE_FIN, 7, 10), sep = "_")]
+
+
+
+###################### FPC ###################### 
+
+# Set working directory
+setwd("~/Data/SACROIS")
+
+
+# Load FPC data
+
+FPC=data.table()
+
+for (i in 2007:2023) {
+  
+  setwd(paste0("C:/Users/cdestrem/Documents/Data/SACROIS/",i));
+  
+  FPC<-rbind(fread(dir(getwd(), pattern="ISIH-504549-vueAnnuelleFpc"), dec=",", encoding="Latin-1", select= c("NAVS_COD", "DATE_REF", "FLOTTILLE_IFREMER_LIB", "S_FLOTTILLE_IFREMER_LIB", "DCR_FLOTTILLE_LIB", "DCR_S_FLOTTILLE_LIB", "DCR_S_S_FLOTTILLE_LIB", "NAVLC8_COD", "NAVP_LONGUEUR_HT","GRA_SYN_COD" )), FPC)
+}
+
+
+
+### Unique vessel ID based on year
+FPC$NAVS_COD_YEAR=paste(FPC[,NAVS_COD], str_sub(FPC[,DATE_REF],7,10), sep="_")
+FPC[,c("DATE_REF", "NAVS_COD"):=NULL]
+
+setDT(FPC)
+
+
+# Join OBSMER data with FPC data
+
+BYC <- BYC %>%
+  left_join(FPC, by = c("NAVS_COD_YEAR" = "NAVS_COD_YEAR"))
+
+
+### SEASONS
+# I'm leaving this here though I do not use this variable for analysis
+
+BYC$DATE <- dmy_hms(BYC$DATE)
+
+# Extract month and year into separate columns
+BYC$Month <- month(BYC$DATE)
+BYC$Year <- year(BYC$DATE)
+
+BYC$Season <- cut(BYC$Month, 
+                            breaks = c(0, 3, 5, 9, 12, Inf), 
+                            labels = c("Winter", "Spring", "Summer", "Fall", "Winter"),
+                            include.lowest = TRUE)
+
+
+
+# This could be interesting to keep for analysis however I believe it was discarded due to it not being referenced in SACROIS dataset 
+
+  #setwd("D:/Data/FREE2_OBSMER_serie")
+  #engin <-read.csv2("ENGINS.csv", fileEncoding="ISO-8859-3")
+  #engin <- engin %>% filter (NAME %in% c("Hauteur du filet","Longueur de la corde de dos (cumulée si jumeaux)", "Nombre d'hameçons par ligne"))
+  #engin <- engin %>% select (ID_OP,NAME, NUMERICAL_VALUE)
+  #setDT(engin)
+
+
+## Cleaning up taxonomic inconsistencies within the dataset using Mathieu Brevet's code
+
+setwd("~/Data")
+Code_FAO <- fread("ISIH-504549-espece_fao-20230320105303.txt")
+
+
+BYC[ESPECE=="",ESPECE:=NA]
+BYC=merge(BYC, Code_FAO[, .(ESPF_SCI_LIB,ESPF_PARENT_SCI_LIB,ESPF_TAXON_COD)], by.x="ESPECE", by.y ="ESPF_SCI_LIB", all.x = T, all.y=F, sort=F ) #add a column with the species specific FAO code (information on the taxon level through the number of "X" present in the code)
+
+BYC[ESPECE!="ZZ9" & !is.na(ESPECE), taxon_precision := lapply(.SD, function(x) str_count(x, "X")), .SDcols = "ESPF_TAXON_COD"] # assign the best level of precision for the taxonomic classification (0: species / 2: group of species / 5: family / 7: order)
+
+
+BYC[,ESPF_TAXON_COD:=NULL] #removing extracolumn
+
+BYC[taxon_precision==0, ESP2_COD_FAO:=ESPECE]
+
+
+#Warning: some species have been attributed to different families in columns "ESPF_SCI_LIB" and "FAMILLE" (due to recent discussions on the taxonomy), in such cases the most recent classification was applied, corrected below:
+
+
+Code_FAO[ESPF_COD=="USK",FAMILLE:="Gadidae"]
+
+Code_FAO[ESPF_COD=="CRG",FAMILLE:="Portunidae"]
+
+Code_FAO[ESPF_COD=="LIO",ESPF_PARENT_SCI_LIB:="Polybiidae"]
+
+Code_FAO[ESPF_COD == "TJX",FAMILLE:="Scorpaenidae"]
+
+Code_FAO[ESPF_COD == "CFB",ESPF_PARENT_SCI_LIB:="Etmopteridae"]
+
+Code_FAO[ESPF_COD == "SLI",ESPF_PARENT_SCI_LIB:="Molva spp"]
+
+Code_FAO[ESPF_COD == "LNZ",ESPF_PARENT_SCI_LIB:="Lotidae"]
+
+Code_FAO[ESPF_COD == "IOD",ESPF_PARENT_SCI_LIB:="Polybiidae"]
+
+Code_FAO[ESPF_COD == "ATB",FAMILLE:="Atherinidae"] #wrong attribution of a subfamily
+
+Code_FAO[FAMILLE=="Parechinidae",ESPF_PARENT_SCI_LIB:="Parechinidae"]
+
+Code_FAO[FAMILLE=="Somniosidae" & ESPF_PARENT_SCI_LIB=="Squalidae", ESPF_PARENT_SCI_LIB:="Somniosidae"]
+
+Code_FAO[FAMILLE=="Dalatiidae", ESPF_PARENT_SCI_LIB:="Dalatiidae"]
+
+
+BYC=merge(BYC, Code_FAO[, .(ESPF_SCI_LIB,ESPF_COD,FAMILLE)], by.x="ESPECE", by.y ="ESPF_SCI_LIB", all.x = T, all.y=F, sort=F) # addition in the dataset of the columns: 1) scientific name of the taxon, 2) scientific names of the taxon upper the taxon of interest, 3) Taxonomic family of the taxon of interest
+
+
+#"SPP_COD_FAO" attribute group of species taxon level:
+
+BYC[taxon_precision==2, SPP_COD_FAO:=ESPECE] #when the FAO code correspond to a group of species, attribution of the scientific name of the group
+
+BYC[taxon_precision==0, SPP_COD_FAO:=ESPF_PARENT_SCI_LIB] #when the FAO code correspond to a species, attribution to the upper taxon name (i.e. group of species, with some exceptions => see next line)
+
+BYC[SPP_COD_FAO==FAMILLE, SPP_COD_FAO:=ESPECE] #in the specific cases where the upper taxonomic group is beyond the group of species level (directly family level) or is not informed, re-attribution of the species name (considered as a group of species in itself)
+
+BYC[,ESPF_PARENT_SCI_LIB:=NULL] #removing extracolumns
+
+
+BYC[SPP_COD_FAO=="Alosa alosa, A. fallax",SPP_COD_FAO:="Alosa spp"]
+
+BYC[SPP_COD_FAO=="Anguilla anguilla",SPP_COD_FAO:="Anguilla spp"] #groupment of all developmental stage of Anguilla anguilla (in ESP_COD_FAO differentiation between juvenile, early and late adult phase, WARNING: this differentiation is not systematic)
+
+
+BYC[SPP_COD_FAO=="Chelidonichthys cuculus",SPP_COD_FAO:="Chelidonichthys spp"] #attribution of red gurnard with the rest of gurnard spp
+
+BYC[SPP_COD_FAO=="Scomber colias",SPP_COD_FAO:="Scomber spp"] #attribution of Atlantic chub mackerel with the rest of mackerel spp
+
+
+
+#"FAMILY_COD_FAO" attribute family taxon level:
+
+BYC[taxon_precision==5, FAMILY_COD_FAO:=ESPECE] #when the FAO code correspond to a family, attribution of the scientific name of the family
+
+
+
+
+BYC=merge(BYC, Code_FAO[, .(ESPF_SCI_LIB,ESPF_PARENT_SCI_LIB)], by.x="SPP_COD_FAO", by.y ="ESPF_SCI_LIB", all.x = T, all.y=F, sort=F) #add a column with the scientific name of the taxon upper the group of species category
+
+BYC[taxon_precision<5, FAMILY_COD_FAO:=ESPF_PARENT_SCI_LIB] #assign the family when the group of species class is known
+
+
+BYC[,c("ESPF_PARENT_SCI_LIB", "FAMILLE"):=NULL] #removing extracolumns
+
+
+
+BYC[FAMILY_COD_FAO=="Thunnini", FAMILY_COD_FAO:="Scombridae"]
+#correction of errors in dataset: some individuals were classified as "Thunnini" at the family level while it is a tribe taxon not a family (right family: Scombridae)
+
+
+#in some cases two families are grouped (Sepiidae, Sepiolidae / Loliginidae, Ommastrephidae), these categories were kept as such (but maybe the two families at stake could be regrouped in this category), and an order was attributed to them:
+
+Code_FAO[ESPF_PARENT_SCI_LIB=="Sepiidae, Sepiolidae" | ESPF_SCI_LIB=="Sepiidae, Sepiolidae",ORDRE:="Sepiida"]
+
+Code_FAO[Code_FAO$ESPF_PARENT_SCI_LIB=="Loliginidae, Ommastrephidae" | Code_FAO$ESPF_SCI_LIB=="Loliginidae, Ommastrephidae",ORDRE:="Myopsida, Oegopsida"]
+
+Code_FAO[ESPF_PARENT_SCI_LIB=="Squalidae, Scyliorhinidae", ORDRE:="Squaliformes, Carcharhiniformes"]
+
+
+
+
+#the order is poorly informed in the FAO table, it sometimes appears for one specific taxon level and not for the others, the upper taxon level relatively to the family level was not used because it contains both order and suborder categories 
+
+
+BYC[taxon_precision==7, ORDER_COD_FAO:=ESPECE] #when the FAO code correspond to an order, attribution of the scientific name of the order
+
+BYC=merge(BYC, Code_FAO[, .(ESPF_SCI_LIB,ORDRE)], by.x="SPP_COD_FAO", by.y ="ESPF_SCI_LIB", all.x = T, all.y=F, sort=F)
+
+
+
+Code_FAO[ESPF_COD =="FGX",ESPF_SCI_LIB:="Gobiidae (Freshwater)"]
+Code_FAO[ESPF_COD =="PPZ",ESPF_SCI_LIB:="Palaemonidae (Freshwater)"]
+
+
+BYC=merge(BYC, Code_FAO[, .(ESPF_SCI_LIB,ORDRE)], by.x="FAMILY_COD_FAO", by.y ="ESPF_SCI_LIB", all.x = T, all.y=F, sort=F, no.dups=T)
+#attribute order at the different taxa level (to compensate for incomplete data)
+
+
+BYC[,ORDRE.y:=ORDRE.y[!is.na(ORDRE.y)][1], by=.(FAMILY_COD_FAO)]#Attribute the same order to all species in the same family
+
+
+
+BYC[taxon_precision<7, ORDER_COD_FAO:=ORDRE.x]
+
+
+BYC[taxon_precision<7 & is.na(ORDER_COD_FAO), ORDER_COD_FAO:=ORDRE.y]
+
+
+
+BYC[,c("ESPF_SCI_LIB", "ORDRE.x","ORDRE.y"):=NULL] #removing extracolumns
+
+
+
+#Correction of some attribution errors:
+
+BYC[ORDER_COD_FAO=="Brachyura",ORDER_COD_FAO:="Decapoda" ]#suborder to order
+
+BYC[ORDER_COD_FAO=="Siluroidei",ORDER_COD_FAO:="Siluriformes"] #suborder to order
+
+BYC[ORDER_COD_FAO=="Clupeoidei",ORDER_COD_FAO:="Clupeiformes"] #suborder to order
+
+BYC[ORDER_COD_FAO=="Salmonoidei",ORDER_COD_FAO:="Salmoniformes"] #suborder to order
+
+BYC[FAMILY_COD_FAO=="Mactridae",ORDER_COD_FAO:="Venerida"]
+
+BYC[FAMILY_COD_FAO=="Patellidae",ORDER_COD_FAO:="Patellogastropoda"]
+
+BYC[FAMILY_COD_FAO=="Haliotidae",ORDER_COD_FAO:="Vetigastropoda"]
+
+
+BYC=merge(BYC, Code_FAO[, .(ESPF_COD,ESPF_ISSCAP)], by.x="ESPECE", by.y ="ESPF_COD", all.x = T, all.y=F, sort=F)
+
+BYC[!is.na(taxon_precision), ISSCAAP_COD_FAO:=ESPF_ISSCAP] #attribute the corresponding ISCAAP code for each species
+
+
+BYC[,ESPF_ISSCAP:=NULL] #removing extracolumns
+
+
+## Creating a unique ID for each common dolphin that was captured
+## I'm leaving this here though it is not used in the analysis
+
+BYC <- BYC[!is.na(BYC$ORDER_COD_FAO), ]
+
+u=c()
+for (i in unique(BYC[ESPECE=="Delphinus delphis",]$ID_CAPTURE)) {u=c(u,max(c(table(BYC[ESPECE=="Delphinus delphis",][ID_CAPTURE==i,]$CRITERE),1)))}
+unique(BYC[ESPECE=="Delphinus delphis",]$ID_CAPTURE)[u>1] #problematic captures
+
+
+BYC$ID_IND=NA_character_
+
+
+for (i in 1:length(u)) {
+  for (j in 1:u[i]) {
+    BYC[ESPECE=="Delphinus delphis",][ID_CAPTURE==unique(BYC[ESPECE=="Delphinus delphis",]$ID_CAPTURE)[i],][which(!duplicated(CRITERE))+(j-1),]$ID_IND=
+      rep(
+        paste(BYC[ESPECE=="Delphinus delphis",][ID_CAPTURE==unique(BYC[ESPECE=="Delphinus delphis",]$ID_CAPTURE)[i],]$ID_CAPTURE[1],j, sep="_"),
+        length(BYC[ESPECE=="Delphinus delphis",][ID_CAPTURE==unique(BYC[ESPECE=="Delphinus delphis",]$ID_CAPTURE)[i],][which(!duplicated(CRITERE))+(j-1),]$ID_IND)
+          )
+  }
+}
+
+
+## Fixing the NOMBRE column that combines both the number of dolphin captured that is referenced in the CAPTURE dataset and in the MESURES dataset (if the value isn't in one dataset it is in the other)
+
+
+
+
+for (i in BYC[ESPECE=="Delphinus delphis",]$ID_CAPTURE) {
+  BYC[ESPECE=="Delphinus delphis",][ID_CAPTURE==i,][is.na(NOMBRE.x),]$NOMBRE.x=
+    rep(sum(BYC[ESPECE=="Delphinus delphis",][ID_CAPTURE==i & !duplicated(ID_IND),]$NOMBRE.y), 
+        length(BYC[ESPECE=="Delphinus delphis",][ID_CAPTURE==i,][is.na(NOMBRE.x),]$NOMBRE.x)
+        )
+}
+
+
+
+
+
+
+BYC$NOMBRE=NA_integer_
+
+
+
+for (i in BYC[ESPECE=="Delphinus delphis",]$ID_OP) {
+  BYC[ESPECE=="Delphinus delphis",][ID_OP==i,]$NOMBRE=
+    rep(sum(BYC[ESPECE=="Delphinus delphis",][ID_OP==i & !duplicated(ID_CAPTURE),]$NOMBRE.x), 
+        length(BYC[ESPECE=="Delphinus delphis",][ID_OP==i,]$NOMBRE)
+        )
+}
+
+
+# remove unecessary datasets to alleviate environment
+
+rm(strat)
+rm(operation)
+rm(mesures)
+#rm(FPC)
+gc()
+
+```
+
+## Data clean up 
+
+```{r data clean up}
+
+library(data.table)
+library(randomForest)
+
+# Remove duplicated ID_CAPTURE rows (MESURES.csv file will add an ungodly amount of duplicated rows due to the nature of what is measured in the file (e.g., weight of capture, length of individual, comments, etc.), resulting in a lot of redundancy within the dataset)
+
+data <- BYC[!duplicated(ID_CAPTURE),] 
+
+# Grabbing the necessary columns, most of these ended up not being used for analysis
+
+data %>%
+  select(ID_LOT, ZONE,DCR_FLOTTILLE_LIB, METIER1, ORDER_COD_FAO,FAMILY_COD_FAO,SPP_COD_FAO, MAILL, LONGUEUR, DUREE_OP, POIDS_REF, PUISSANCE, EFFORT, ID_OP, ID_CAPTURE, ID_MAREE, ZONE, GEAR_SPEED, ETAT_MER, NOMBRE,ESPF_COD, PROF_ENGIN, Season, Month, PROF_FOND)
+
+
+
+# Grabbing total weight per marées
+
+data <- data %>% 
+  group_by(ID_MAREE) %>%
+  mutate(Poids_tot_MAREE = sum(as.numeric(POIDS_REF),na.rm = T)) %>% 
+  ungroup()
+
+
+# Adjust here type of Flottille analysis will be conducted on 
+
+pelagique_ptmbss <- data %>% filter (DCR_FLOTTILLE_LIB == "Chalutiers pélagiques")
+
+
+
+#pelagique_ptmbss <- pelagique_ptmbss %>% 
+#  group_by(ID_MAREE) %>%
+#  mutate(Poids_tot_MAREE = sum(as.numeric(POIDS_REF),na.rm = T)) %>% 
+#  ungroup()
+
+# Periodically check for NAs
+
+colSums(is.na(pelagique_ptmbss))
+
+
+pelagique_ptmbss$POIDS_REF <- as.numeric(pelagique_ptmbss$POIDS_REF)
+
+
+# Add a bew column with absence (0) or presence (1) of bycatch, if NA then we assign a O 
+
+pelagique_ptmbss <- pelagique_ptmbss %>%
+  group_by(ID_MAREE) %>%
+  mutate(Bycatch = if_else(any(SPP_COD_FAO == "Delphinus delphis"), 1, 0, missing = 0))
+
+
+# periodically check of NAs
+colSums(is.na(pelagique_ptmbss))
+table(pelagique_ptmbss$Bycatch)
+
+
+
+# Summary of species fished of interest
+
+sp_p_w <- pelagique_ptmbss %>%
+  filter(!is.na(ESPF_COD)) %>%
+  filter(ESPF_COD != "DCO") %>% 
+  group_by(ID_MAREE) %>%
+  reframe(
+    Trachurus_weight = sum(if_else(SPP_COD_FAO == "Trachurus spp", POIDS_REF, 0), na.rm = T),
+    Trachurus_p = Trachurus_weight / Poids_tot_MAREE,
+    Gadidae_weight = sum(if_else(FAMILY_COD_FAO == "Gadidae", POIDS_REF, 0),na.rm = T),
+    Gadidae_p = sum(if_else(FAMILY_COD_FAO == "Gadidae", POIDS_REF, 0),na.rm = T) / Poids_tot_MAREE,
+    Scomber_weight = sum(if_else(SPP_COD_FAO == "Scomber spp", POIDS_REF, 0),na.rm = T),
+    Scomber_p = sum(if_else(SPP_COD_FAO == "Scomber spp", POIDS_REF, 0),na.rm = T) / Poids_tot_MAREE,
+    #Merluccius_weight = sum(if_else(SPP_COD_FAO == "Merluccius spp", POIDS_REF, 0),na.rm = T),
+    #Merluccius_p = sum(if_else(SPP_COD_FAO == "Merluccius spp", POIDS_REF, 0),na.rm = T) / Poids_tot_MAREE,
+    Dicentrarchus_weight = sum(if_else(SPP_COD_FAO == "Dicentrarchus spp", POIDS_REF, 0),na.rm = T),
+    Dicentrarchus_p = sum(if_else(SPP_COD_FAO == "Dicentrarchus spp", POIDS_REF, 0),na.rm = T) / Poids_tot_MAREE,
+    Sprat_weight = sum(if_else(SPP_COD_FAO == "Sprattus sprattus", POIDS_REF, 0),na.rm = T),
+    Sprat_p = sum(if_else(SPP_COD_FAO == "Sprattus sprattus", POIDS_REF, 0),na.rm = T) / Poids_tot_MAREE,
+    Anchois_weight = sum(if_else(SPP_COD_FAO == "Engraulis spp", POIDS_REF, 0),na.rm = T),
+    Anchois_p = sum(if_else(SPP_COD_FAO == "Engraulis spp", POIDS_REF, 0),na.rm = T) / Poids_tot_MAREE,
+    Sardine_weight = sum(if_else(SPP_COD_FAO == "Sardina pilchardus", POIDS_REF, 0),na.rm = T),
+    Sardine_p = sum(if_else(SPP_COD_FAO == "Sardina pilchardus", POIDS_REF, 0),na.rm = T) / Poids_tot_MAREE,
+    
+    
+  )%>%
+  distinct(ID_MAREE, .keep_all = TRUE)
+
+
+
+# Check NAs
+colSums(is.na(pelagique_ptmbss))
+
+# Adding a column for total number of dolphins captured per marée
+
+Bycatch_nb <- pelagique_ptmbss %>%
+  filter(!is.na(ESPF_COD)) %>%
+  distinct(ID_CAPTURE, .keep_all = T) %>%
+  group_by(ID_MAREE) %>%
+  summarize(Bycatch_nb = sum(as.numeric(NOMBRE),na.rm = T))
+
+# Adding the column to the dataset
+
+pelagique_ptmbss <- pelagique_ptmbss %>%
+  left_join(Bycatch_nb, by = "ID_MAREE")
+
+# Summary of maree characteristics
+# We join this table with the previous one (sp_p_w)
+
+  # Warning : 
+    # Uncheck Bycatch if doing classification (Bycatch = absence/presence)
+    # Uncheck Bycatch_nb if doing regression (Bycatch_nb = number of dolphins captured)
+
+maree_summary <- pelagique_ptmbss %>%
+  filter(!is.na(ESPF_COD)) %>%
+  filter(ESPF_COD != "DCO") %>%
+  group_by(ID_MAREE) %>%
+  summarise(n_especes = n_distinct(SPP_COD_FAO),
+            av_mail = mean(as.numeric(MAILL), na.rm = TRUE),
+            av_peche = mean(as.numeric(DUREE_OP)) / 1440,
+            Longueur = unique(LONGUEUR),
+            Bycatch = unique(Bycatch),
+            #Bycatch_nb = unique(Bycatch_nb),
+            #av_vitesse = round(mean(as.numeric(GEAR_SPEED))),
+            av_puissance = round(mean(as.numeric(PUISSANCE))),
+            poids_tot = round(sum(as.numeric(POIDS_REF), na.rm = TRUE)),
+            #first_sp_fished = names(sort(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), decreasing = TRUE))[1],
+            poids_total_sp_plus_peche = max(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), na.rm = TRUE),
+            #stat_rectangle = names(sort(tapply(POIDS_REF, RECTANGLE, sum, na.rm = TRUE), decreasing = TRUE))[1],
+            #month = names(sort(tapply(POIDS_REF, Month, sum, na.rm = TRUE), decreasing = TRUE))[1],
+            fam_plus_peche = names(sort(tapply(POIDS_REF, FAMILY_COD_FAO, sum, na.rm = TRUE), decreasing = TRUE))[1],
+            #total_w_fam_fished = max(tapply(POIDS_REF, FAMILY_COD_FAO, sum, na.rm = TRUE), na.rm = TRUE),
+            #Months = paste(Month, collapse = ", "),
+            #Etat_mer = paste(ETAT_MER, collapse = ", "),
+            #av_prof_fond = round(mean(as.numeric(PROF_FOND, na.rm = T))),
+            #av_prof_engin = round(mean(as.numeric(PROF_ENGIN, na.rm = T))),
+            ) %>%
+  ungroup() %>%
+  left_join(sp_p_w, by = "ID_MAREE")
+
+
+# Check NAs 
+sum(is.na(maree_summary$Bycatch[maree_summary$Bycatch == 1]))
+
+# Get rid of unecessary data
+maree_summary <- maree_summary %>% select (-ID_MAREE, -Trachurus_weight, -Gadidae_weight, -Scomber_weight, -Dicentrarchus_weight, -Sprat_weight, -Anchois_weight, -Sardine_weight)
+
+# Check bycatch
+
+# table(maree_summary$Bycatch)
+# table(maree_summary$Bycatch_nb)
+
+
+
+# Check NAs and remove them if necessary
+colSums(is.na(maree_summary))
+maree_summary <- na.omit(maree_summary)
+colSums(is.na(maree_summary))
+
+# Double check bycatch
+table(maree_summary$Bycatch)
+
+# Put whatever is not in correct format in the correct format
+
+maree_summary$Longueur <- as.numeric(maree_summary$Longueur)
+#maree_summary$sp_plus_peche <- as.factor(maree_summary$sp_plus_peche)
+maree_summary$fam_plus_peche <- as.factor(maree_summary$fam_plus_peche)
+maree_summary$n_especes <- as.numeric(maree_summary$n_especes)
+
+# Uncheck this if doing classification :
+
+ maree_summary$Bycatch <- as.factor(maree_summary$Bycatch)
+
+# One last check for NA for good measure
+
+colSums(is.na(maree_summary))
+
+
+```
+## Analyses
+
+### AFDM & HCPC 
+
+```{r AFDM HCPC}
+
+
+library(FactoMineR)
+library(factoextra)
+library(NbClust)
+
+
+# Do HCPC with a bunch of axes
+
+famd_byc <- FAMD(maree_summary[,-5], graph = T, ncp = 35)
+
+# Apply Kaiser rule
+famd_byc$eig
+
+kaiser_rule <- 14
+
+famd_byc <- FAMD(maree_summary[,-5], graph = T, ncp = kaiser_rule)
+
+
+#décrire mieux pr pas faire nimp 
+#rajoute ligne où tu prends le nb d'axes d'après kaiser rule
+
+#res <- NbClust(as.data.frame(famd_byc$ind$coord), diss=NULL, distance = "euclidean", min.nc=2, max.nc=12, method = "complete", index = "ch")
+
+res <- NbClust(as.data.frame(famd_byc$ind$coord), diss=NULL, distance = "euclidean", method = "complete", index = "ch")
+
+# NbClust was choosing the highest value (max.nc), removing that, it now gives me 14 as the optimum number of clusters...
+
+## Hierachical clustering
+
+set.seed(555)
+
+res.hcpc <- HCPC(famd_byc,consol = T,  method = "complete",metric = "euclidian", nb.clust = 14)
+cluster <- fviz_cluster(res.hcpc, geom = "point", ggtheme = theme_bw() +
+  labs(title = NULL))
+cluster
+
+pipo <- cbind(res.hcpc$data.clust, maree_summary$Bycatch)
+
+table(pipo$clust, pipo$`maree_summary$Bycatch`)
+
+res.hcpc$desc.var$quanti
+res.hcpc$desc.var$category
+
+
+library(plotly)
+val_df <- as.data.frame(famd_byc$ind)
+x <- cbind(pipo, val_df[1:3])
+plot_ly(x,
+        x = ~coord.Dim.1,
+        y = ~coord.Dim.2,
+        z = ~coord.Dim.3,
+        color = ~clust)
+
+```
+
+
+### Random Forest
+
+```{r random forest}
+
+# Classification (Bycatch (0,1))
+
+rf_byc = randomForest(Bycatch~.,data=maree_summary, sampsize=c(22,11), proximity = T, keep.forest = T, importance = T, ntree = 3000, do.trace = 100, mtry = 3)
+
+
+print(rf_byc)
+
+varImpPlot(rf_byc)
+
+conf_matrix <- as.data.frame(rf_byc$confusion)
+
+
+# Look at the distribution of predicted values in the HCPC clusters
+
+pipo <- cbind(res.hcpc$data.clust, maree_summary$Bycatch)
+
+predicted <- rf_byc$predicted
+
+results <- data.frame(pipo, Predicted_Bycatch = predicted)
+
+
+# Regression (Bycatch_nb)
+
+
+rf_byc_nb = randomForest(Bycatch_nb~.,data=maree_summary, proximity = T, keep.forest = T, importance = T, do.trace = 100, ntree = 3000, mtry = 2)
+rf_byc_nb
+predicted_nb <- rf_byc_nb$predicted
+
+results_nb <- data.frame(maree_summary, Predicted_Bycatch = predicted_nb)
+
+
+
+```
