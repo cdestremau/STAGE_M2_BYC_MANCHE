@@ -367,7 +367,7 @@ gc()
 
 ```
 
-## Data clean up 
+s## Data clean up 
 
 ```{r data clean up}
 
@@ -396,7 +396,12 @@ data <- data %>%
 # Adjust here type of Flottille analysis will be conducted on 
 
 pelagique_ptmbss <- data %>% filter (DCR_FLOTTILLE_LIB == "Chalutiers pélagiques")
+pelagique_obsmer <- data %>% filter (DCR_FLOTTILLE_LIB == "Chalutiers pélagiques") %>% distinct(ID_MAREE, .keep_all = T)
 
+fond_obsmer <- data %>% filter (DCR_FLOTTILLE_LIB == "Chalutiers de fond") %>% distinct(ID_MAREE, .keep_all = T)
+fileyeurs_obsmer <- data %>% filter (DCR_FLOTTILLE_LIB == "Fileyeurs") %>% distinct(ID_MAREE, .keep_all = T)
+senneurs_obsmer <- data %>% filter (DCR_FLOTTILLE_LIB == "Senneurs") %>% distinct(ID_MAREE, .keep_all = T)
+casiers_obsmer <- data %>% filter (DCR_FLOTTILLE_LIB == "Casiers et pièges") %>% distinct(ID_MAREE, .keep_all = T)
 
 
 #pelagique_ptmbss <- pelagique_ptmbss %>% 
@@ -492,7 +497,7 @@ maree_summary <- pelagique_ptmbss %>%
             av_puissance = round(mean(as.numeric(PUISSANCE))),
             poids_tot = round(sum(as.numeric(POIDS_REF), na.rm = TRUE)),
             #first_sp_fished = names(sort(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), decreasing = TRUE))[1],
-            poids_total_sp_plus_peche = max(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), na.rm = TRUE),
+            poids_sp_plus_peche = max(tapply(POIDS_REF, ESPF_COD, sum, na.rm = TRUE), na.rm = TRUE),
             #stat_rectangle = names(sort(tapply(POIDS_REF, RECTANGLE, sum, na.rm = TRUE), decreasing = TRUE))[1],
             #month = names(sort(tapply(POIDS_REF, Month, sum, na.rm = TRUE), decreasing = TRUE))[1],
             fam_plus_peche = names(sort(tapply(POIDS_REF, FAMILY_COD_FAO, sum, na.rm = TRUE), decreasing = TRUE))[1],
@@ -507,7 +512,7 @@ maree_summary <- pelagique_ptmbss %>%
 
 
 # Check NAs 
-sum(is.na(maree_summary$Bycatch[maree_summary$Bycatch == 1]))
+#sum(is.na(maree_summary$Bycatch[maree_summary$Bycatch == 1]))
 
 # Get rid of unecessary data
 maree_summary <- maree_summary %>% select (-ID_MAREE, -Trachurus_weight, -Gadidae_weight, -Scomber_weight, -Dicentrarchus_weight, -Sprat_weight, -Anchois_weight, -Sardine_weight)
@@ -525,18 +530,18 @@ maree_summary <- na.omit(maree_summary)
 colSums(is.na(maree_summary))
 
 # Double check bycatch
-table(maree_summary$Bycatch)
+#table(maree_summary$Bycatch)
 
 # Put whatever is not in correct format in the correct format
 
 maree_summary$Longueur <- as.numeric(maree_summary$Longueur)
 #maree_summary$sp_plus_peche <- as.factor(maree_summary$sp_plus_peche)
-maree_summary$fam_plus_peche <- as.factor(maree_summary$fam_plus_peche)
+maree_summary$fam_plus_peche <- as.character(maree_summary$fam_plus_peche)
 maree_summary$n_especes <- as.numeric(maree_summary$n_especes)
 
 # Uncheck this if doing classification :
 
- maree_summary$Bycatch <- as.factor(maree_summary$Bycatch)
+#maree_summary$Bycatch <- as.factor(maree_summary$Bycatch)
 
 # One last check for NA for good measure
 
@@ -559,21 +564,35 @@ library(NbClust)
 # Do HCPC with a bunch of axes
 
 famd_byc <- FAMD(maree_summary[,-5], graph = T, ncp = 35)
-
 # Apply Kaiser rule
 famd_byc$eig
+
 
 kaiser_rule <- 14
 
 famd_byc <- FAMD(maree_summary[,-5], graph = T, ncp = kaiser_rule)
 
+quanti.var <- get_famd_var(famd_byc, "quanti.var")
+famd_corr <- fviz_famd_var(famd_byc, axes = c(3,4), "quanti.var", repel = TRUE,
+              col.var = "black") +
+  theme(panel.grid.major = element_blank(),    # Remove major grid lines
+        panel.grid.minor = element_blank(),    # Remove minor grid lines
+        panel.background = element_blank(),   # Remove panel background
+        axis.line = element_line(color = "black"),  # Keep axis lines and customize their color
+        plot.title = element_blank()) 
+
+#ggsave("famd_corr.png", plot = famd_corr, width = 140, height = 140, units = "mm", bg = "white", dpi = 300)
 
 #décrire mieux pr pas faire nimp 
 #rajoute ligne où tu prends le nb d'axes d'après kaiser rule
 
 #res <- NbClust(as.data.frame(famd_byc$ind$coord), diss=NULL, distance = "euclidean", min.nc=2, max.nc=12, method = "complete", index = "ch")
 
-res <- NbClust(as.data.frame(famd_byc$ind$coord), diss=NULL, distance = "euclidean", method = "complete", index = "ch")
+#res <- NbClust(as.data.frame(famd_byc$ind$coord), diss=NULL, distance = "euclidean", method = "complete", index = "ch")
+library(NbClust)
+
+res <- NbClust(as.data.frame(famd_byc$ind$coord), method = "kmeans", index = "silhouette", max.nc = 20)
+
 
 # NbClust was choosing the highest value (max.nc), removing that, it now gives me 14 as the optimum number of clusters...
 
@@ -581,10 +600,11 @@ res <- NbClust(as.data.frame(famd_byc$ind$coord), diss=NULL, distance = "euclide
 
 set.seed(555)
 
-res.hcpc <- HCPC(famd_byc,consol = T,  method = "complete",metric = "euclidian", nb.clust = 14)
-cluster <- fviz_cluster(res.hcpc, geom = "point", ggtheme = theme_bw() +
-  labs(title = NULL))
-cluster
+res.hcpc <- HCPC(famd_byc,consol = T,  method = "complete",metric = "euclidian", nb.clust = 13)
+cluster <- fviz_cluster(res.hcpc, geom = "point", pointsize = 3, ggtheme = theme_bw()) +
+  theme(panel.grid.major = element_blank(),    # Remove major grid lines
+        panel.grid.minor = element_blank(),    # Remove minor grid lines
+        plot.title = element_blank())
 
 pipo <- cbind(res.hcpc$data.clust, maree_summary$Bycatch)
 
@@ -612,7 +632,12 @@ plot_ly(x,
 
 # Classification (Bycatch (0,1))
 
-rf_byc = randomForest(Bycatch~.,data=maree_summary, sampsize=c(22,11), proximity = T, keep.forest = T, importance = T, ntree = 3000, do.trace = 100, mtry = 3)
+
+
+maree_summary$Bycatch <- as.factor(maree_summary$Bycatch)
+
+set.seed(100)
+rf_byc = randomForest(Bycatch~.,data=maree_summary, proximity = T,sampsize=c(22,11), keep.forest = T, importance = T, ntree = 3000, do.trace = 100, mtry=3)
 
 
 print(rf_byc)
@@ -620,6 +645,18 @@ print(rf_byc)
 varImpPlot(rf_byc)
 
 conf_matrix <- as.data.frame(rf_byc$confusion)
+
+# ggsave("famd_corr.png", plot = famd_corr, width = 140, height = 140, units = "mm", bg = "white", dpi = 300)
+
+## clust
+
+pipo <- cbind(res.hcpc$data.clust, maree_summary$Bycatch)
+
+table(pipo$clust, pipo$`maree_summary$Bycatch`)
+
+pipo$clust
+
+rf_byc_clust = randomForest(clust~.,data=pipo[,-17], proximity = T, keep.forest = T, importance = T, ntree = 3000, do.trace = 100, mtry = 3)
 
 
 # Look at the distribution of predicted values in the HCPC clusters
@@ -630,16 +667,125 @@ predicted <- rf_byc$predicted
 
 results <- data.frame(pipo, Predicted_Bycatch = predicted)
 
+obsmer_clust_byc <- pipo %>% filter (clust == "1")
 
 # Regression (Bycatch_nb)
 
-
-rf_byc_nb = randomForest(Bycatch_nb~.,data=maree_summary, proximity = T, keep.forest = T, importance = T, do.trace = 100, ntree = 3000, mtry = 2)
-rf_byc_nb
-predicted_nb <- rf_byc_nb$predicted
-
-results_nb <- data.frame(maree_summary, Predicted_Bycatch = predicted_nb)
+#rf_byc_nb = randomForest(Bycatch_nb~.,data=maree_summary, proximity = T, keep.forest = T, importance = T, do.trace = 100, ntree = 3000, mtry = 3)
+#rf_byc_nb
+#predicted_nb <- rf_byc_nb$predicted
+#results_nb <- data.frame(maree_summary, Predicted_Bycatch = predicted_nb)
 
 
+################## VarImpPlot
+
+# Extract importance values (Mean Decrease in Accuracy)
+importance_values <- importance(rf_byc, type = 1)  # Type 1 corresponds to Mean Decrease in Accuracy
+
+# Convert to data frame and order by importance
+importance_df <- data.frame(Variable = rownames(importance_values), 
+                            MeanDecreaseAccuracy = importance_values[, "MeanDecreaseAccuracy"])
+#importance_df <- importance_df[importance_df$MeanDecreaseAccuracy > 0, ]
+importance_df <- importance_df[order(importance_df$MeanDecreaseAccuracy, decreasing = TRUE), ]
+
+# Plot the variable importance
+var_imp_plot <- ggplot(importance_df, aes(x = reorder(Variable, MeanDecreaseAccuracy), 
+                          y = MeanDecreaseAccuracy)) +
+  geom_point(stat = "identity", shape = 1, size = 2) +
+  coord_flip() +  # Flip coordinates for better readability
+  xlab("Variable") + 
+  ylab("Mean Decrease in Accuracy") +
+  ggtitle("") +
+  theme_classic()+
+  theme(axis.text.y = element_text(color = "black"),axis.text.x = element_text(color = "black"))
+
+#ggsave("var_imp_plot.png", plot = var_imp_plot, width = 140, height = 140, units = "mm", bg = "white", dpi = 300)
+
+
+################# Partial plots
+
+
+output_file <- "partial_plots_fr.png"
+width_mm <- 140
+height_mm <- 140
+units <- "mm"
+dpi <- 300
+
+# Convert dimensions from mm to inches for the png function
+width_in <- width_mm / 25.4
+height_in <- height_mm / 25.4
+
+# Open a PNG device to save the plots
+png(filename = output_file, width = width_in, height = height_in, units = "in", res = dpi, bg = "white")
+
+##################### in english 
+
+
+par(mfrow = c(3, 2))
+
+longueur <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, boat_size,main = "", xlab = expression(bold(boat_size)), ylab = "Partial dependence")
+
+puissance <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, mean_power, cex.name = 1, main = "", xlab = expression(bold(mean_power)))
+
+bar <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, Dicentrarchus_p, cex.name = 1,main = "", xlab = expression(bold(Dicentrarchus_p)), ylab = "Partial dependence")
+
+#gadide <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, Gadidae_p, cex.name = 1,main = "", xlab = expression(bold(Gadidae_p)))
+
+peche <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, mean_fishing, cex.name = 1, main = "", xlab = expression(bold(mean_fishing)),ylab = "Partial dependence")
+
+#n_espece <- peche <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, n_especes, cex.name = 1, main = "", xlab = expression(bold(n_especes)))
+
+anchovy <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0,Anchovy_p, cex.name = 1,main = "", xlab = expression(bold(Anchovy_p)), ylab = "Partial dependence")
+
+
+dev.off()
+
+##################### en français 
+
+# Open a PNG device to save the plots
+png(filename = output_file, width = width_in, height = height_in, units = "in", res = dpi, bg = "white")
+
+
+par(mar=c(3.8, 4, 1, 0.2),mfrow = c(3, 2))
+
+longueur <- partialPlot(rf_byc, as.data.frame(maree_summary), rug = T, which.class = 0, Longueur,main = "", xlab = expression(bold(Longueur)), ylab = "Dépendance partielle")
+
+puissance <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, av_puissance, cex.name = 1, main = "", xlab = expression(bold(av_puissance)))
+
+bar <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, Dicentrarchus_p, cex.name = 1,main = "", xlab = expression(bold(Dicentrarchus_p)), ylab = "Dépendance partielle")
+
+#gadide <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, Gadidae_p, cex.name = 1,main = "", xlab = expression(bold(Gadidae_p)),)
+
+peche <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, av_peche, cex.name = 1, main = "", xlab = expression(bold(av_peche)), ylab = "Dépendance partielle")
+
+n_espece <- peche <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0, n_especes, cex.name = 1, main = "", xlab = expression(bold(n_especes)), ylab = "Dépendance partielle")
+
+Anchois_p <- partialPlot(rf_byc, as.data.frame(maree_summary), which.class = 0,Anchois_p, cex.name = 1,main = "", xlab = expression(bold(Anchois_p)), ylab = "Dépendance partielle")
+
+
+dev.off()
+
+
+# Partial plot for most fished family
+
+maree_summary$fam_peche <- as.factor(maree_summary$fam_peche)
+
+partial_data <- partialPlot(rf_byc, as.data.frame(maree_summary), "fam_peche", which.class = 0, plot = FALSE)
+
+# Create a data frame from the extracted data
+fam <- data.frame(x = partial_data$x, y = partial_data$y)
+
+# Create the ggplot
+fam_plot <- ggplot(fam, aes(x = reorder(x, y), y = y)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(x = "", y = expression(`Dépendance partielle`)) +
+  theme_classic() +
+  theme(axis.text.y = element_text(size = 12, face = "bold", hjust = 1, color = "black"),
+        axis.title.x = element_text(size = 12, color = "black"))# Bold x-axis title
+        #panel.grid.major.y = element_line(linewidth = 0.5, linetype = 'solid', colour = "grey")) # Add grid lines for y-axis
+
+
+#ggsave("fam_plot.png", plot = fam_plot, width = 140, height = 140, units = "mm", bg = "white", dpi = 300)
 
 ```
